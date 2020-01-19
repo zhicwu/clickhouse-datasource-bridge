@@ -21,6 +21,7 @@ LABEL maintainer="zhicwu@gmail.com"
 ENV DATASOURCE_BRIDGE_HOME=/app DATASOURCE_BRIDGE_VERSION="0.1.0" \
 	DATASOURCE_BRIDGE_ID=1000 DATASOURCE_BRIDGE_USER=datasource-bridge \
 	MAVEN_REPO_URL=https://repo1.maven.org/maven2 \
+	CLICKHOUSE_DRIVER_VERSION=0.2.3 \
 	MSSSQL_DRIVER_VERSION=7.4.1.jre8 MYSQL_DRIVER_VERSION=2.5.3 \
 	POSTGRESQL_DRIVER_VERSION=42.2.9 PRESTO_DRIVER_VERSION=0.230
 
@@ -32,9 +33,10 @@ RUN groupadd -r -g $DATASOURCE_BRIDGE_ID $DATASOURCE_BRIDGE_USER \
 	&& useradd -r -u $DATASOURCE_BRIDGE_ID -g $DATASOURCE_BRIDGE_ID $DATASOURCE_BRIDGE_USER \
 	&& mkdir -p $DATASOURCE_BRIDGE_HOME/drivers \
 	&& apt-get update \
-	&& DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-unauthenticated \
+	&& DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-unauthenticated apache2-utils \
 		apt-transport-https curl htop iftop iptraf iputils-ping lsof net-tools tzdata wget \
 	&& wget -P $DATASOURCE_BRIDGE_HOME/drivers \
+		$MAVEN_REPO_URL/ru/yandex/clickhouse/clickhouse-jdbc/$CLICKHOUSE_DRIVER_VERSION/clickhouse-jdbc-$CLICKHOUSE_DRIVER_VERSION-shaded.jar \
 		$MAVEN_REPO_URL/com/microsoft/sqlserver/mssql-jdbc/$MSSSQL_DRIVER_VERSION/mssql-jdbc-$MSSSQL_DRIVER_VERSION.jar \
 		$MAVEN_REPO_URL/org/mariadb/jdbc/mariadb-java-client/$MYSQL_DRIVER_VERSION/mariadb-java-client-$MYSQL_DRIVER_VERSION.jar \
 		$MAVEN_REPO_URL/org/postgresql/postgresql/$POSTGRESQL_DRIVER_VERSION/postgresql-$POSTGRESQL_DRIVER_VERSION.jar \
