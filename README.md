@@ -66,10 +66,10 @@ An alternative implementation of JDBC Bridge for ClickHouse.
 
     ```sql
     -- get the first 10 rows(based on above configuration)
-    select * from('ch', '', 'test-query')
+    select * from jdbc('ch', '', 'test-query')
     -- get a specific row
     select * 
-    from('ch?max_rows=3&offset=2', '',
+    from jdbc('ch?max_rows=3&offset=2', '',
         'select * from test-table order by column1 desc')
     ```
 
