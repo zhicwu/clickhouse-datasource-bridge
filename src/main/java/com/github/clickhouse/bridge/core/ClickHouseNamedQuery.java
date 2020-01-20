@@ -53,6 +53,10 @@ public class ClickHouseNamedQuery {
         return this.query;
     }
 
+    public boolean hasColumn() {
+        return this.columns != null && this.columns.hasColumn();
+    }
+
     public ClickHouseColumnList getColumns() {
         return this.columns;
     }

@@ -38,6 +38,8 @@ public final class ClickHouseBuffer {
     private static final long U_INT32_MAX = (1L << 32) - 1;
     private static final long MILLIS_IN_DAY = TimeUnit.DAYS.toMillis(1);
 
+    private static final long DATETIME_MAX = U_INT32_MAX * 1000L;
+
     protected final Buffer buffer;
     protected final TimeZone timeZone;
 
@@ -278,8 +280,8 @@ public final class ClickHouseBuffer {
         long time = value.getTime();
         if (time < 0L) { // 1970-01-01 00:00:00
             time = 0L;
-        } else if (time > U_INT32_MAX) { // 2106-02-07 06:28:15
-            time = U_INT32_MAX;
+        } else if (time > DATETIME_MAX) { // 2106-02-07 06:28:15
+            time = DATETIME_MAX;
         }
 
         time = time / 1000L;

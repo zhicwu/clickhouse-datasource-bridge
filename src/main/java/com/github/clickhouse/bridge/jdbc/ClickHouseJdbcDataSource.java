@@ -55,6 +55,9 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
     private static final String PROP_CLIENT_NAME = "ClientUser";
     private static final String DEFAULT_CLIENT_NAME = "clickhouse-datasource-bridge";
 
+    private static final String QUERY_TABLE_BEGIN = "SELECT * FROM ";
+    private static final String QUERY_TABLE_END = " WHERE 1 = 0";
+
     static {
         // set default properties
         DEFAULT_DATASOURCE_PROPERTIES.setProperty("connectionTestQuery", "SELECT 1");
@@ -80,9 +83,11 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
         } else { // named
             if (config != null) {
                 config.forEach(field -> {
-                    Object value = field.getValue();
-                    if (value != null && !(value instanceof JsonObject)) {
-                        props.setProperty(field.getKey(), String.valueOf(value));
+                    if (!ClickHouseDataSource.CONF_TYPE.equals(field.getKey())) {
+                        Object value = field.getValue();
+                        if (value != null && !(value instanceof JsonObject)) {
+                            props.setProperty(field.getKey(), String.valueOf(value));
+                        }
                     }
                 });
             }
@@ -225,6 +230,16 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
             stmt.setMaxRows(1);
             stmt.setFetchSize(1);
 
+            // could be just a table name
+            if (query != null && query.indexOf(' ') == -1) {
+                StringBuilder sb = new StringBuilder().append(QUERY_TABLE_BEGIN);
+                String quote = this.getQuoteIdentifier();
+                if (schema != null) {
+                    sb.append(quote).append(schema).append(quote).append('.');
+                }
+                query = sb.append(quote).append(query).append(quote).append(QUERY_TABLE_END).toString();
+            }
+
             // could be very slow...
             ResultSetMetaData meta = stmt.executeQuery(query).getMetaData();
 
@@ -257,9 +272,11 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
             ClickHouseBuffer buffer = ClickHouseBuffer.newInstance(estimatedSize);
             for (int i = 1; i <= length; i++) {
                 ClickHouseColumnInfo column = columns[i - 1];
+                // keep in mind that column index is zero-based
+                int index = column.isIndexed() ? column.getIndex() + 1 : i;
 
                 if (column.isNullable()) {
-                    if (rs.getObject(i) == null || rs.wasNull()) {
+                    if (rs.getObject(index) == null || rs.wasNull()) {
                         buffer.writeNull();
                         continue;
                     } else {
@@ -269,56 +286,56 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
 
                 switch (column.getType()) {
                 case Int8:
-                    buffer.writeInt8(rs.getInt(i));
+                    buffer.writeInt8(rs.getInt(index));
                     break;
                 case Int16:
-                    buffer.writeInt16(rs.getInt(i));
+                    buffer.writeInt16(rs.getInt(index));
                     break;
                 case Int32:
-                    buffer.writeInt32(rs.getInt(i));
+                    buffer.writeInt32(rs.getInt(index));
                     break;
                 case Int64:
-                    buffer.writeInt64(rs.getLong(i));
+                    buffer.writeInt64(rs.getLong(index));
                     break;
                 case UInt8:
-                    buffer.writeUInt8(rs.getInt(i));
+                    buffer.writeUInt8(rs.getInt(index));
                     break;
                 case UInt16:
-                    buffer.writeUInt16(rs.getInt(i));
+                    buffer.writeUInt16(rs.getInt(index));
                     break;
                 case UInt32:
-                    buffer.writeUInt32(rs.getLong(i));
+                    buffer.writeUInt32(rs.getLong(index));
                     break;
                 case UInt64:
-                    buffer.writeUInt64(rs.getLong(i));
+                    buffer.writeUInt64(rs.getLong(index));
                     break;
                 case Float32:
-                    buffer.writeFloat32(rs.getFloat(i));
+                    buffer.writeFloat32(rs.getFloat(index));
                     break;
                 case Float64:
-                    buffer.writeFloat64(rs.getDouble(i));
+                    buffer.writeFloat64(rs.getDouble(index));
                     break;
                 case DateTime:
-                    buffer.writeDateTime(rs.getTime(i));
+                    buffer.writeDateTime(rs.getTime(index));
                     break;
                 case Date:
-                    buffer.writeDate(rs.getDate(i));
+                    buffer.writeDate(rs.getDate(index));
                     break;
                 case Decimal:
-                    buffer.writeDecimal(rs.getBigDecimal(i), column.getPrecision(), column.getScale());
+                    buffer.writeDecimal(rs.getBigDecimal(index), column.getPrecision(), column.getScale());
                     break;
                 case Decimal32:
-                    buffer.writeDecimal32(rs.getBigDecimal(i), column.getScale());
+                    buffer.writeDecimal32(rs.getBigDecimal(index), column.getScale());
                     break;
                 case Decimal64:
-                    buffer.writeDecimal64(rs.getBigDecimal(i), column.getScale());
+                    buffer.writeDecimal64(rs.getBigDecimal(index), column.getScale());
                     break;
                 case Decimal128:
-                    buffer.writeDecimal128(rs.getBigDecimal(i), column.getScale());
+                    buffer.writeDecimal128(rs.getBigDecimal(index), column.getScale());
                     break;
                 case String:
                 default:
-                    buffer.writeString(rs.getString(i));
+                    buffer.writeString(rs.getString(index));
                     break;
                 }
             }

@@ -46,6 +46,9 @@ public class ClickHouseColumnInfo {
     private final int precision;
     private final int scale;
 
+    // index in the column list
+    private int index = -1;
+
     public static ClickHouseColumnInfo fromJson(JsonObject json) {
         return json == null
                 ? new ClickHouseColumnInfo(DEFAULT_NAME, ClickHouseDataType.String, DEFAULT_NULLABLE, DEFAULT_PRECISION,
@@ -169,6 +172,26 @@ public class ClickHouseColumnInfo {
 
     public int getScale() {
         return this.scale;
+    }
+
+    public void setIndex(int index) {
+        if (index < 0) {
+            throw new IllegalArgumentException("Column index is zero-based and should never be negative.");
+        }
+
+        if (this.index == -1) {
+            this.index = index;
+        } else {
+            throw new IllegalStateException("Column index can only be set once!");
+        }
+    }
+
+    public int getIndex() {
+        return this.index;
+    }
+
+    public boolean isIndexed() {
+        return this.index != -1;
     }
 
     @Override

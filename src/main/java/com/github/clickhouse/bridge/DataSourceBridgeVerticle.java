@@ -217,9 +217,9 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
         if (params.isDebug()) {
             columnsInfo = ClickHouseColumnList.DEFAULT_COLUMNS_INFO.toString();
         } else {
-            // try if it's a named query first
+            // even it's a named query, the column list could be empty
             ClickHouseNamedQuery namedQuery = queries.get(rawQuery);
-            columnsInfo = namedQuery != null ? namedQuery.getColumns().toString()
+            columnsInfo = namedQuery != null && namedQuery.hasColumn() ? namedQuery.getColumns().toString()
                     : ds.getColumns(req.getParam(PARAM_SCHEMA), normalizeQuery(rawQuery));
         }
 
@@ -269,7 +269,13 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
                 long executionStartTime = System.currentTimeMillis();
                 if (namedQuery != null) {
                     log.debug("Found named query: [{}]", namedQuery);
-                    ds.execute(namedQuery, writer);
+
+                    // columns in request might just be a subset of defined list
+                    // for example:
+                    // - named query 'test' is: select a, b, c from table
+                    // - clickhouse query: select b, a from jdbc('?','','test')
+                    // - requested columns: b, a
+                    ds.execute(namedQuery, ClickHouseColumnList.fromString(req.getParam(PARAM_COLUMNS)), writer);
                 } else {
                     // columnsInfo could be different from what we responded earlier, so let's parse
                     // it again

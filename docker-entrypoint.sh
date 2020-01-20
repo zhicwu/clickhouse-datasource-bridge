@@ -13,9 +13,7 @@ init() {
 
 		cat <<EOF > $config_file
 {
-	"server": {
-		"serverPort": 9019
-	}
+	"serverPort": 9019
 }
 EOF
 	fi
@@ -39,7 +37,7 @@ if [ $# -eq 0 ]; then
 		java -Djava.awt.headless=true -XX:+UseContainerSupport -XX:+IdleTuningCompactOnIdle -XX:+IdleTuningGcOnIdle \
 			-Xdump:none -Xdump:tool:events=systhrow+throw,filter=*OutOfMemoryError,exec=/usr/bin/oom_killer \
 			-cp ./clickhouse-datasource-bridge.jar:$(echo $(ls drivers/*.jar) | tr ' ' ':'):. \
-			-Dlog4j.configuration=$DATASOURCE_BRIDGE_HOME/log4j.properties \
+			-Dlog4j.configuration=file://`pwd`/log4j.properties \
 			"${DATASOURCE_BRIDGE_JVM_OPTS}" com.github.clickhouse.bridge.DataSourceBridgeVerticle
 else
 	exec "$@"

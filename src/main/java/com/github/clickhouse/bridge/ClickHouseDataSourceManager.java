@@ -36,7 +36,6 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class ClickHouseDataSourceManager {
-    private static final String CONF_TYPE = "type";
     private static final String CONF_JDBC_URL = "jdbcUrl";
 
     private final Map<String, Constructor<ClickHouseDataSource>> types = new HashMap<>();
@@ -88,7 +87,7 @@ public class ClickHouseDataSourceManager {
         ClickHouseDataSource ds = null;
 
         if (config != null) {
-            ds = createFromType(id, config.getString(CONF_TYPE), false);
+            ds = createFromType(id, config.getString(ClickHouseDataSource.CONF_TYPE), false);
 
             // could it be JDBC data source?
             if (ds == null && config.containsKey(CONF_JDBC_URL)) {
@@ -120,7 +119,7 @@ public class ClickHouseDataSourceManager {
             try {
                 mappings.put(id, createFromConfig(id, config));
             } catch (Exception e) {
-                log.warn("Failed to add datasource", e);
+                log.warn("Failed to add datasource [" + id + "]", e);
             }
         }
     }

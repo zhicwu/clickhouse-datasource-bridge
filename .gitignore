@@ -1,8 +1,11 @@
 .*
 !.gitignore
-config/
-out/
-target/
+config
+drivers
+out
+target
+test.sh
 *.class
 *.jar
 dependency-reduced-pom.xml
+$*

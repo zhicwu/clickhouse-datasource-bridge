@@ -37,6 +37,8 @@ public class ClickHouseDataSource implements Closeable {
     // https://github.com/ClickHouse/ClickHouse/blob/master/dbms/src/Parsers/IdentifierQuotingStyle.h
     public static final String DEFAULT_QUOTE_IDENTIFIER = "`";
 
+    public static final String CONF_TYPE = "type";
+
     protected static final String CONF_PARAMETERS = "parameters";
 
     private static final String DATASOURCE_TYPE = "general";
@@ -84,9 +86,7 @@ public class ClickHouseDataSource implements Closeable {
 
         try {
             columns = columnsCache.get(query, k -> {
-                ClickHouseColumnList list = inferColumns(schema, k);
-
-                return list == null ? ClickHouseColumnList.DEFAULT_COLUMNS_INFO : list;
+                return inferColumns(schema, k);
             });
         } catch (Exception e) {
             log.warn("Failed to retrieve columns definition", e);
@@ -99,10 +99,23 @@ public class ClickHouseDataSource implements Closeable {
         return this.parameters;
     }
 
-    public final void execute(ClickHouseNamedQuery query, ClickHouseResponseWriter writer) {
+    public final void execute(ClickHouseNamedQuery query, ClickHouseColumnList requestColumns,
+            ClickHouseResponseWriter writer) {
         Objects.requireNonNull(query);
+        Objects.requireNonNull(requestColumns);
 
-        execute(query.getQuery(), query.getColumns(), query.getParameters(), writer);
+        ClickHouseColumnList allColumns = query.getColumns();
+        for (int i = 0; i < requestColumns.size(); i++) {
+            ClickHouseColumnInfo r = requestColumns.getColumn(i);
+            for (int j = 0; j < allColumns.size(); j++) {
+                if (r.getName().equals(allColumns.getColumn(j).getName())) {
+                    r.setIndex(j);
+                    break;
+                }
+            }
+        }
+
+        execute(query.getQuery(), requestColumns, query.getParameters(), writer);
     }
 
     @Override
