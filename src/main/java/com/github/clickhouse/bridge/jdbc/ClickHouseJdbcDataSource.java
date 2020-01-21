@@ -248,7 +248,7 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
             for (int i = 1; i <= columns.length; i++) {
                 columns[i - 1] = new ClickHouseColumnInfo(meta.getColumnName(i),
                         convert(meta.getColumnType(i), meta.isSigned(i)),
-                        ResultSetMetaData.columnNullable == meta.isNullable(i), meta.getPrecision(i), meta.getScale(i));
+                        ResultSetMetaData.columnNoNulls != meta.isNullable(i), meta.getPrecision(i), meta.getScale(i));
             }
 
             return new ClickHouseColumnList(columns);
