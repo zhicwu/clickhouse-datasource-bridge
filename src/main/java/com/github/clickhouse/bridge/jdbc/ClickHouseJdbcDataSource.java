@@ -42,11 +42,9 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
 import io.vertx.core.json.JsonObject;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
-    public static final String DATASOURCE_TYPE = "jdbc";
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ClickHouseJdbcDataSource.class);
 
     private static final Properties DEFAULT_DATASOURCE_PROPERTIES = new Properties();
 
@@ -57,6 +55,8 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
 
     private static final String QUERY_TABLE_BEGIN = "SELECT * FROM ";
     private static final String QUERY_TABLE_END = " WHERE 1 = 0";
+
+    public static final String DATASOURCE_TYPE = "jdbc";
 
     static {
         // set default properties
@@ -171,55 +171,67 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
         ClickHouseDataType type = ClickHouseDataType.String;
 
         switch (jdbcType) {
-        case BIT:
-        case BOOLEAN:
-            type = ClickHouseDataType.UInt8;
-            break;
-        case TINYINT:
-            type = signed ? ClickHouseDataType.Int8 : ClickHouseDataType.UInt8;
-            break;
-        case SMALLINT:
-            type = signed ? ClickHouseDataType.Int16 : ClickHouseDataType.UInt16;
-            break;
-        case INTEGER:
-            type = signed ? ClickHouseDataType.Int32 : ClickHouseDataType.UInt32;
-            break;
-        case BIGINT:
-            type = signed ? ClickHouseDataType.Int64 : ClickHouseDataType.UInt64;
-            break;
-        case REAL:
-        case FLOAT:
-            type = ClickHouseDataType.Float32;
-            break;
-        case DOUBLE:
-            type = ClickHouseDataType.Float64;
-            break;
-        case NUMERIC:
-        case DECIMAL:
-            type = ClickHouseDataType.Decimal;
-            break;
-        case CHAR:
-        case NCHAR:
-        case VARCHAR:
-        case NVARCHAR:
-        case LONGVARCHAR:
-        case LONGNVARCHAR:
-        case NULL:
-            type = ClickHouseDataType.String;
-            break;
-        case DATE:
-            type = ClickHouseDataType.Date;
-            break;
-        case TIME:
-        case TIMESTAMP:
-            type = ClickHouseDataType.DateTime;
-            break;
-        default:
-            log.warn("Unsupported JDBC type [{}], which will be treated as [{}]", jdbcType.name(), type.name());
-            break;
+            case BIT:
+            case BOOLEAN:
+                type = ClickHouseDataType.UInt8;
+                break;
+            case TINYINT:
+                type = signed ? ClickHouseDataType.Int8 : ClickHouseDataType.UInt8;
+                break;
+            case SMALLINT:
+                type = signed ? ClickHouseDataType.Int16 : ClickHouseDataType.UInt16;
+                break;
+            case INTEGER:
+                type = signed ? ClickHouseDataType.Int32 : ClickHouseDataType.UInt32;
+                break;
+            case BIGINT:
+                type = signed ? ClickHouseDataType.Int64 : ClickHouseDataType.UInt64;
+                break;
+            case REAL:
+            case FLOAT:
+                type = ClickHouseDataType.Float32;
+                break;
+            case DOUBLE:
+                type = ClickHouseDataType.Float64;
+                break;
+            case NUMERIC:
+            case DECIMAL:
+                type = ClickHouseDataType.Decimal;
+                break;
+            case CHAR:
+            case NCHAR:
+            case VARCHAR:
+            case NVARCHAR:
+            case LONGVARCHAR:
+            case LONGNVARCHAR:
+            case NULL:
+                type = ClickHouseDataType.String;
+                break;
+            case DATE:
+                type = ClickHouseDataType.Date;
+                break;
+            case TIME:
+            case TIMESTAMP:
+                type = ClickHouseDataType.DateTime;
+                break;
+            default:
+                log.warn("Unsupported JDBC type [{}], which will be treated as [{}]", jdbcType.name(), type.name());
+                break;
         }
 
         return type;
+    }
+
+    protected ResultSet getFirstQueryResult(Statement stmt, boolean hasResultSet) throws SQLException {
+        ResultSet rs = null;
+
+        if (hasResultSet) {
+            rs = stmt.getResultSet();
+        } else if (stmt.getUpdateCount() == -1) {
+            throw new SQLException("No query result!");
+        }
+
+        return rs != null ? rs : getFirstQueryResult(stmt, stmt.getMoreResults());
     }
 
     @Override
@@ -241,7 +253,7 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
             }
 
             // could be very slow...
-            ResultSetMetaData meta = stmt.executeQuery(query).getMetaData();
+            ResultSetMetaData meta = getFirstQueryResult(stmt, stmt.execute(query)).getMetaData();
 
             ClickHouseColumnInfo[] columns = new ClickHouseColumnInfo[meta.getColumnCount()];
 
@@ -253,14 +265,14 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
 
             return new ClickHouseColumnList(columns);
         } catch (Exception e) {
-            log.error("Failed to get columns definition from database", e);
+            throw new IllegalStateException("Failed to get columns definition from database", e);
         }
 
-        return super.inferColumns(schema, query);
+        // return super.inferColumns(schema, query);
     }
 
-    protected final void stream(ResultSet rs, ClickHouseColumnInfo[] columns, ClickHouseResponseWriter writer)
-            throws SQLException {
+    protected final void stream(ResultSet rs, ClickHouseColumnInfo[] columns, QueryParameters params,
+            ClickHouseResponseWriter writer) throws SQLException {
         Objects.requireNonNull(rs);
         Objects.requireNonNull(columns);
         Objects.requireNonNull(writer);
@@ -277,7 +289,11 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
 
                 if (column.isNullable()) {
                     if (rs.getObject(index) == null || rs.wasNull()) {
-                        buffer.writeNull();
+                        if (params.replaceNullAsDefault()) {
+                            buffer.writeNonNull().writeDefaultValue(column);
+                        } else {
+                            buffer.writeNull();
+                        }
                         continue;
                     } else {
                         buffer.writeNonNull();
@@ -285,58 +301,58 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
                 }
 
                 switch (column.getType()) {
-                case Int8:
-                    buffer.writeInt8(rs.getInt(index));
-                    break;
-                case Int16:
-                    buffer.writeInt16(rs.getInt(index));
-                    break;
-                case Int32:
-                    buffer.writeInt32(rs.getInt(index));
-                    break;
-                case Int64:
-                    buffer.writeInt64(rs.getLong(index));
-                    break;
-                case UInt8:
-                    buffer.writeUInt8(rs.getInt(index));
-                    break;
-                case UInt16:
-                    buffer.writeUInt16(rs.getInt(index));
-                    break;
-                case UInt32:
-                    buffer.writeUInt32(rs.getLong(index));
-                    break;
-                case UInt64:
-                    buffer.writeUInt64(rs.getLong(index));
-                    break;
-                case Float32:
-                    buffer.writeFloat32(rs.getFloat(index));
-                    break;
-                case Float64:
-                    buffer.writeFloat64(rs.getDouble(index));
-                    break;
-                case DateTime:
-                    buffer.writeDateTime(rs.getTime(index));
-                    break;
-                case Date:
-                    buffer.writeDate(rs.getDate(index));
-                    break;
-                case Decimal:
-                    buffer.writeDecimal(rs.getBigDecimal(index), column.getPrecision(), column.getScale());
-                    break;
-                case Decimal32:
-                    buffer.writeDecimal32(rs.getBigDecimal(index), column.getScale());
-                    break;
-                case Decimal64:
-                    buffer.writeDecimal64(rs.getBigDecimal(index), column.getScale());
-                    break;
-                case Decimal128:
-                    buffer.writeDecimal128(rs.getBigDecimal(index), column.getScale());
-                    break;
-                case String:
-                default:
-                    buffer.writeString(rs.getString(index));
-                    break;
+                    case Int8:
+                        buffer.writeInt8(rs.getInt(index));
+                        break;
+                    case Int16:
+                        buffer.writeInt16(rs.getInt(index));
+                        break;
+                    case Int32:
+                        buffer.writeInt32(rs.getInt(index));
+                        break;
+                    case Int64:
+                        buffer.writeInt64(rs.getLong(index));
+                        break;
+                    case UInt8:
+                        buffer.writeUInt8(rs.getInt(index));
+                        break;
+                    case UInt16:
+                        buffer.writeUInt16(rs.getInt(index));
+                        break;
+                    case UInt32:
+                        buffer.writeUInt32(rs.getLong(index));
+                        break;
+                    case UInt64:
+                        buffer.writeUInt64(rs.getLong(index));
+                        break;
+                    case Float32:
+                        buffer.writeFloat32(rs.getFloat(index));
+                        break;
+                    case Float64:
+                        buffer.writeFloat64(rs.getDouble(index));
+                        break;
+                    case DateTime:
+                        buffer.writeDateTime(rs.getTimestamp(index));
+                        break;
+                    case Date:
+                        buffer.writeDate(rs.getDate(index));
+                        break;
+                    case Decimal:
+                        buffer.writeDecimal(rs.getBigDecimal(index), column.getPrecision(), column.getScale());
+                        break;
+                    case Decimal32:
+                        buffer.writeDecimal32(rs.getBigDecimal(index), column.getScale());
+                        break;
+                    case Decimal64:
+                        buffer.writeDecimal64(rs.getBigDecimal(index), column.getScale());
+                        break;
+                    case Decimal128:
+                        buffer.writeDecimal128(rs.getBigDecimal(index), column.getScale());
+                        break;
+                    case String:
+                    default:
+                        buffer.writeString(rs.getString(index));
+                        break;
                 }
             }
 
@@ -370,15 +386,16 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
         log.info("Executing SQL:\n{}", query);
 
         try (Connection conn = getConnection(); Statement stmt = createStatement(conn, params)) {
-            if (stmt.execute(query)) {
-                // TODO multiple result rests
-                stream(stmt.getResultSet(), columns.getColumns(), writer);
-            } else if (columns.size() == 1 && columns.getColumn(0).getType() == ClickHouseDataType.Int32) {
-                writer.write(ClickHouseBuffer.newInstance(4).writeInt32(stmt.getUpdateCount()));
-            } else {
-                throw new IllegalStateException(
-                        "Not able to handle query result due to incompatible columns: " + columns);
-            }
+            stream(getFirstQueryResult(stmt, stmt.execute(query)), columns.getColumns(), params, writer);
+            /*
+             * if (stmt.execute(query)) { // TODO multiple resultsets
+             * 
+             * } else if (columns.size() == 1 && columns.getColumn(0).getType() ==
+             * ClickHouseDataType.Int32) {
+             * writer.write(ClickHouseBuffer.newInstance(4).writeInt32(stmt.getUpdateCount()
+             * )); } else { throw new IllegalStateException(
+             * "Not able to handle query result due to incompatible columns: " + columns); }
+             */
         } catch (Exception e) {
             log.error("Failed to execute SQL", e);
         }

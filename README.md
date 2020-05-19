@@ -231,6 +231,18 @@ Below is the directory structure used in docker image. By default, all configura
 
 
 ## TODOs
+- [ ] JSON schema for named datasource and queries
+- [ ] Additional/Fixed columns(e.g. 'datasource name', 'current user' etc.) can be defined in datasource config
+- [ ] Special datasource like config - 'select * from jdbc('config', '', 'show datasources')'
+- [ ] Special run-time parameter to save query and/or generate datasources(select * from jdbc('ds?save_query=xxx', '', 'select 1'))
+- [ ] Strict mode(turn on by default)
+- [ ] Provider for CodeQL
 - [ ] Enable write access
+- [ ] More examples (docker-compose.yml, swarm and k8s, with/without Vert.x clustering)
+- [ ] Reduce dependencies so that we can go Native - https://vertx.io/blog/eclipse-vert-x-goes-native/
+    * Exclude unnecessary dependencies from Vertx lib
+    * Simple LRU cache(better in JDK) to replace Caffeine
+    * Avoid reflection - less configuration required to build native image
+- [ ] Reduce memory usage if we stick with JVM - https://stackoverflow.com/questions/561245/virtual-memory-usage-from-java-under-linux-too-much-memory-used
 - [ ] Parallelized query
-- [ ] More data sources...
+- [ ] More data sources(Cassandra, DGraph, InfluxDB and Prometheus)...

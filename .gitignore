@@ -3,6 +3,7 @@
 config
 drivers
 out
+qlpack.yml
 target
 test.sh
 *.class

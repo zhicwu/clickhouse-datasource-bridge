@@ -32,10 +32,10 @@ import com.github.clickhouse.bridge.core.ClickHouseDataSource;
 import com.github.clickhouse.bridge.jdbc.ClickHouseJdbcDataSource;
 
 import io.vertx.core.json.JsonObject;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public class ClickHouseDataSourceManager {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ClickHouseDataSourceManager.class);
+
     private static final String CONF_JDBC_URL = "jdbcUrl";
 
     private final Map<String, Constructor<ClickHouseDataSource>> types = new HashMap<>();

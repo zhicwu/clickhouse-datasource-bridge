@@ -51,15 +51,15 @@ import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.handler.ResponseContentTypeHandler;
 import io.vertx.ext.web.handler.TimeoutHandler;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * Unified data source bridge for ClickHouse.
  *
  * @author Zhichun Wu
  */
-@Slf4j
 public class DataSourceBridgeVerticle extends AbstractVerticle {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(DataSourceBridgeVerticle.class);
+
     private static long startTime;
 
     private static final String CONFIG_PATH = "config";
@@ -344,41 +344,41 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
             if (ch == '\\' && i + 1 < len) {
                 char nextCh = normalizedQuery.charAt(i + 1);
                 switch (nextCh) {
-                case 't':
-                    builder.append('\t');
-                    i++;
-                    break;
-                case 'b':
-                    builder.append('\b');
-                    i++;
-                    break;
-                case 'n':
-                    builder.append('\n');
-                    i++;
-                    break;
-                case 'r':
-                    builder.append('\r');
-                    i++;
-                    break;
-                case 'f':
-                    builder.append('\f');
-                    i++;
-                    break;
-                case '\'':
-                    builder.append('\'');
-                    i++;
-                    break;
-                case '"':
-                    builder.append('"');
-                    i++;
-                    break;
-                case '\\':
-                    builder.append('\\');
-                    i++;
-                    break;
-                default:
-                    builder.append(ch);
-                    break;
+                    case 't':
+                        builder.append('\t');
+                        i++;
+                        break;
+                    case 'b':
+                        builder.append('\b');
+                        i++;
+                        break;
+                    case 'n':
+                        builder.append('\n');
+                        i++;
+                        break;
+                    case 'r':
+                        builder.append('\r');
+                        i++;
+                        break;
+                    case 'f':
+                        builder.append('\f');
+                        i++;
+                        break;
+                    case '\'':
+                        builder.append('\'');
+                        i++;
+                        break;
+                    case '"':
+                        builder.append('"');
+                        i++;
+                        break;
+                    case '\\':
+                        builder.append('\\');
+                        i++;
+                        break;
+                    default:
+                        builder.append(ch);
+                        break;
                 }
             } else {
                 builder.append(ch);

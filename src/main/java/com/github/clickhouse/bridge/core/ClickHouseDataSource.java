@@ -29,19 +29,19 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
 import io.vertx.core.json.JsonObject;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public class ClickHouseDataSource implements Closeable {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ClickHouseDataSource.class);
+
+    private static final String DATASOURCE_TYPE = "general";
+
+    protected static final String CONF_PARAMETERS = "parameters";
+
     // See all supported values defined in:
     // https://github.com/ClickHouse/ClickHouse/blob/master/dbms/src/Parsers/IdentifierQuotingStyle.h
     public static final String DEFAULT_QUOTE_IDENTIFIER = "`";
 
     public static final String CONF_TYPE = "type";
-
-    protected static final String CONF_PARAMETERS = "parameters";
-
-    private static final String DATASOURCE_TYPE = "general";
 
     private final Cache<String, ClickHouseColumnList> columnsCache = Caffeine.newBuilder().maximumSize(100)
             .expireAfterAccess(5, TimeUnit.MINUTES).build();
@@ -82,14 +82,14 @@ public class ClickHouseDataSource implements Closeable {
     }
 
     public final String getColumns(String schema, String query) {
-        ClickHouseColumnList columns = ClickHouseColumnList.DEFAULT_COLUMNS_INFO;
+        final ClickHouseColumnList columns; // = ClickHouseColumnList.DEFAULT_COLUMNS_INFO;
 
         try {
             columns = columnsCache.get(query, k -> {
                 return inferColumns(schema, k);
             });
         } catch (Exception e) {
-            log.warn("Failed to retrieve columns definition", e);
+            throw new IllegalStateException("Failed to retrieve columns definition", e);
         }
 
         return columns.toString();

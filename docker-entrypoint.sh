@@ -21,7 +21,8 @@ EOF
 	if [ ! -f $log4j_config ]; then
 			cat <<EOF > $log4j_config
 log4j.rootLogger=INFO, STDOUT
-log4j.logger.ru.yandex.clickhouse=WARN
+log4j.category.ru.yandex.clickhouse=WARN
+log4j.category.com.zaxxer.hikari=WARN
 log4j.appender.STDOUT=org.apache.log4j.ConsoleAppender
 log4j.appender.STDOUT.layout=org.apache.log4j.PatternLayout
 log4j.appender.STDOUT.layout.ConversionPattern=%d{yyyy-MM-dd HH:mm:ss.sss} [%t] [%-5p] {%c{1}:%L} - %m%n

@@ -40,6 +40,8 @@ public final class ClickHouseBuffer {
 
     private static final long DATETIME_MAX = U_INT32_MAX * 1000L;
 
+    private static final String EMPTY_STRING = "";
+
     protected final Buffer buffer;
     protected final TimeZone timeZone;
 
@@ -311,6 +313,65 @@ public final class ClickHouseBuffer {
 
         byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
         return writeUnsignedLeb128(bytes.length).writeBytes(bytes);
+    }
+
+    public ClickHouseBuffer writeDefaultValue(ClickHouseColumnInfo column) {
+        switch (column.getType()) {
+            case Int8:
+                writeInt8(0);
+                break;
+            case Int16:
+                writeInt16(0);
+                break;
+            case Int32:
+                writeInt32(0);
+                break;
+            case Int64:
+                writeInt64(0);
+                break;
+            case UInt8:
+                writeUInt8(0);
+                break;
+            case UInt16:
+                writeUInt16(0);
+                break;
+            case UInt32:
+                writeUInt32(0);
+                break;
+            case UInt64:
+                writeUInt64(0);
+                break;
+            case Float32:
+                writeFloat32(0.0F);
+                break;
+            case Float64:
+                writeFloat64(0.0D);
+                break;
+            case DateTime:
+                writeUInt32(1);
+                break;
+            case Date:
+                writeUInt16(1);
+                break;
+            case Decimal:
+                writeDecimal(BigDecimal.ZERO, column.getPrecision(), column.getScale());
+                break;
+            case Decimal32:
+                writeDecimal32(BigDecimal.ZERO, column.getScale());
+                break;
+            case Decimal64:
+                writeDecimal64(BigDecimal.ZERO, column.getScale());
+                break;
+            case Decimal128:
+                writeDecimal128(BigDecimal.ZERO, column.getScale());
+                break;
+            case String:
+            default:
+                writeString(EMPTY_STRING);
+                break;
+        }
+
+        return this;
     }
 
     public Buffer unwrap() {
