@@ -32,11 +32,31 @@ public enum ClickHouseDataType {
     Float32, Float64,
 
     // Date time
-    DateTime, Date,
+    Date, DateTime, DateTime64,
 
     // Decimals
     Decimal, Decimal32, Decimal64, Decimal128,
 
     // Misc
     String;
+
+    public static final int DEFAULT_DECIMAL_PRECISON = 10;
+    public static final int DEFAULT_DECIMAL_SCALE = 4;
+    public static final int DEFAULT_DECIMAL32_PRECISON = 9;
+    public static final int DEFAULT_DECIMAL32_SCALE = 2;
+    public static final int DEFAULT_DECIMAL64_PRECISON = 18;
+    public static final int DEFAULT_DECIMAL64_SCALE = 4;
+    public static final int DEFAULT_DECIMAL128_PRECISON = 38;
+    public static final int DEFAULT_DECIMAL128_SCALE = 8;
+
+    // https://clickhouse.tech/docs/en/sql-reference/data-types/decimal/
+    public static final int MAX_PRECISON = 38;
+
+    public static final boolean DEFAULT_NULLABLE = true;
+    public static final int DEFAULT_PRECISION = 0;
+    public static final int DEFAULT_SCALE = 0;
+
+    public static final int MAX_DATETIME64_SCALE = 18;
+    // Tick size (precision): 10-precision seconds
+    public static final int DEFAULT_DATETIME64_SCALE = 3;
 }

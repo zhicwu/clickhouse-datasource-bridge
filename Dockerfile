@@ -18,7 +18,7 @@ FROM zhicwu/java:8-j9
 LABEL maintainer="zhicwu@gmail.com"
 
 # Environment variables
-ENV DATASOURCE_BRIDGE_HOME=/app DATASOURCE_BRIDGE_VERSION="0.1.0" \
+ENV DATASOURCE_BRIDGE_HOME=/app DATASOURCE_BRIDGE_VERSION="0.2.0" \
 	DATASOURCE_BRIDGE_ID=1000 DATASOURCE_BRIDGE_USER=datasource-bridge \
 	MAVEN_REPO_URL=https://repo1.maven.org/maven2 \
 	CLICKHOUSE_DRIVER_VERSION=0.2.4 \
@@ -41,6 +41,7 @@ RUN groupadd -r -g $DATASOURCE_BRIDGE_ID $DATASOURCE_BRIDGE_USER \
 		$MAVEN_REPO_URL/org/mariadb/jdbc/mariadb-java-client/$MYSQL_DRIVER_VERSION/mariadb-java-client-$MYSQL_DRIVER_VERSION.jar \
 		$MAVEN_REPO_URL/org/postgresql/postgresql/$POSTGRESQL_DRIVER_VERSION/postgresql-$POSTGRESQL_DRIVER_VERSION.jar \
 		$MAVEN_REPO_URL/com/facebook/presto/presto-jdbc/$PRESTO_DRIVER_VERSION/presto-jdbc-$PRESTO_DRIVER_VERSION.jar \
+		https://github.com/timveil/hive-jdbc-uber-jar/releases/download/v1.9-2.6.5/hive-jdbc-uber-2.6.5.0-292.jar \
 	&& apt-get clean \
 	&& rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 

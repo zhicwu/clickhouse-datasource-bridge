@@ -20,21 +20,6 @@
  */
 package com.github.clickhouse.bridge.core;
 
-import static org.testng.Assert.*;
-
-import java.math.BigDecimal;
-import java.util.Date;
-
-import org.testng.annotations.Test;
-
-public class ClickHouseBufferTest {
-    @Test(groups = { "unit" })
-    public void testWriteInt8() {
-        ClickHouseBuffer buffer = ClickHouseBuffer.newInstance(100);
-
-        buffer.writeInt8(Byte.MIN_VALUE);
-        buffer.writeInt8(Byte.MAX_VALUE);
-        buffer.writeInt8(0xff);
-        assertEquals(buffer.buffer.getBytes(), new byte[] { Byte.MIN_VALUE, Byte.MAX_VALUE, (byte) 0xff });
-    }
+public interface IDataSourceResolver {
+    String resolve(String uri);
 }

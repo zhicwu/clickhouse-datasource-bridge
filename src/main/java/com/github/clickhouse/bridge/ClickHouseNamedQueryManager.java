@@ -37,9 +37,17 @@ public class ClickHouseNamedQueryManager {
     }
 
     protected void update(String id, JsonObject config) {
-        mappings.remove(id);
+        ClickHouseNamedQuery query = mappings.get(id);
 
-        if (config != null) {
+        boolean addQuery = false;
+        if (query == null) {
+            addQuery = true;
+        } else if (query.isDifferentFrom(config)) {
+            mappings.remove(id);
+            addQuery = true;
+        }
+
+        if (addQuery && config != null) {
             log.info("Adding query [{}]...", id);
             try {
                 mappings.put(id, new ClickHouseNamedQuery(id, config));

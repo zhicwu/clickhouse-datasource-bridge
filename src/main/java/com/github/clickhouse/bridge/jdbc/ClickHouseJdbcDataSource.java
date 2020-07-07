@@ -28,10 +28,16 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.Set;
+import java.util.Map.Entry;
 
 import com.github.clickhouse.bridge.core.ClickHouseResponseWriter;
+import com.github.clickhouse.bridge.core.IDataSourceResolver;
 import com.github.clickhouse.bridge.core.ClickHouseBuffer;
 import com.github.clickhouse.bridge.core.ClickHouseColumnInfo;
 import com.github.clickhouse.bridge.core.ClickHouseColumnList;
@@ -41,20 +47,29 @@ import com.github.clickhouse.bridge.core.QueryParameters;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 
 public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ClickHouseJdbcDataSource.class);
 
+    private static final Set<String> PRIVATE_PROPS = Collections
+            .unmodifiableSet(new HashSet<>(Arrays.asList(CONF_SCHEMA, CONF_TYPE, CONF_TIMEZONE, CONF_CACHE)));
+
     private static final Properties DEFAULT_DATASOURCE_PROPERTIES = new Properties();
 
     private static final String PROP_POOL_NAME = "poolName";
+    private static final String PROP_PASSWORD = "password";
 
     private static final String PROP_CLIENT_NAME = "ClientUser";
     private static final String DEFAULT_CLIENT_NAME = "clickhouse-datasource-bridge";
 
     private static final String QUERY_TABLE_BEGIN = "SELECT * FROM ";
     private static final String QUERY_TABLE_END = " WHERE 1 = 0";
+
+    private static final String CONF_DATASOURCE = "dataSource";
+
+    private static final String QUERY_FILE_EXT = ".sql";
 
     public static final String DATASOURCE_TYPE = "jdbc";
 
@@ -71,8 +86,8 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
     // cached identifier quote
     private String quoteIdentifier = null;
 
-    public ClickHouseJdbcDataSource(String id, JsonObject config) {
-        super(id, config);
+    public ClickHouseJdbcDataSource(String id, IDataSourceResolver resolver, JsonObject config) {
+        super(id, resolver, config);
 
         Properties props = new Properties();
         props.putAll(DEFAULT_DATASOURCE_PROPERTIES);
@@ -82,14 +97,35 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
             this.datasource = null;
         } else { // named
             if (config != null) {
-                config.forEach(field -> {
-                    if (!ClickHouseDataSource.CONF_TYPE.equals(field.getKey())) {
+                for (Entry<String, Object> field : config) {
+                    String key = field.getKey();
+
+                    if (!PRIVATE_PROPS.contains(key)) {
                         Object value = field.getValue();
-                        if (value != null && !(value instanceof JsonObject)) {
-                            props.setProperty(field.getKey(), String.valueOf(value));
+
+                        if (value instanceof JsonObject) {
+                            if (CONF_DATASOURCE.equals(key)) {
+                                for (Entry<String, Object> entry : (JsonObject) value) {
+                                    String propName = entry.getKey();
+                                    String propValue = String.valueOf(entry.getValue());
+                                    if (!PROP_PASSWORD.equals(propName)) {
+                                        propValue = resolver.resolve(propValue);
+                                    }
+
+                                    props.setProperty(
+                                            new StringBuilder().append(key).append('.').append(propName).toString(),
+                                            propValue);
+                                }
+                            }
+                        } else if (value != null && !(value instanceof JsonArray)) {
+                            String propValue = String.valueOf(value);
+                            if (!PROP_PASSWORD.equals(key)) {
+                                propValue = resolver.resolve(propValue);
+                            }
+                            props.setProperty(key, propValue);
                         }
                     }
-                });
+                }
             }
 
             props.setProperty(PROP_POOL_NAME, id);
@@ -128,7 +164,7 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
         if (parameters == null) {
             stmt = conn.createStatement();
         } else {
-            boolean scrollable = parameters.getOffset() != 0;
+            boolean scrollable = parameters.getPosition() != 0;
             stmt = conn.createStatement(scrollable ? ResultSet.TYPE_SCROLL_INSENSITIVE : ResultSet.TYPE_FORWARD_ONLY,
                     ResultSet.CONCUR_READ_ONLY);
 
@@ -144,20 +180,20 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
             int position = parameters.getPosition();
             // absolute position takes priority
             if (position != 0) {
-                log.debug("Move cursor position to row #{}...", position);
+                log.trace("Move cursor position to row #{}...", position);
                 rs.absolute(position);
-                log.debug("Now resume reading...");
+                log.trace("Now resume reading...");
             } else {
                 int offset = parameters.getOffset();
 
                 if (offset > 0) {
-                    log.debug("Skipping first {} rows...", offset);
+                    log.trace("Skipping first {} rows...", offset);
                     while (rs.next()) {
                         if (--offset <= 0) {
                             break;
                         }
                     }
-                    log.debug("Now resume reading the rest rows...");
+                    log.trace("Now resume reading the rest rows...");
                 }
             }
         }
@@ -212,7 +248,9 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
                 break;
             case TIME:
             case TIMESTAMP:
-                type = ClickHouseDataType.DateTime;
+            case TIME_WITH_TIMEZONE:
+            case TIMESTAMP_WITH_TIMEZONE:
+                type = ClickHouseDataType.DateTime64;
                 break;
             default:
                 log.warn("Unsupported JDBC type [{}], which will be treated as [{}]", jdbcType.name(), type.name());
@@ -235,6 +273,11 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
     }
 
     @Override
+    protected boolean isSavedQuery(String file) {
+        return super.isSavedQuery(file) || file.endsWith(QUERY_FILE_EXT);
+    }
+
+    @Override
     protected ClickHouseColumnList inferColumns(String schema, String query) {
         log.debug("Inferring database columns: schema=[{}], query=[{}]", schema, query);
 
@@ -246,7 +289,7 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
             if (query != null && query.indexOf(' ') == -1) {
                 StringBuilder sb = new StringBuilder().append(QUERY_TABLE_BEGIN);
                 String quote = this.getQuoteIdentifier();
-                if (schema != null) {
+                if (schema != null && schema.length() > 0) {
                     sb.append(quote).append(schema).append(quote).append('.');
                 }
                 query = sb.append(quote).append(query).append(quote).append(QUERY_TABLE_END).toString();
@@ -258,14 +301,42 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
             ClickHouseColumnInfo[] columns = new ClickHouseColumnInfo[meta.getColumnCount()];
 
             for (int i = 1; i <= columns.length; i++) {
+                boolean isSigned = true;
+                int nullable = ResultSetMetaData.columnNullable;
+                int precison = 0;
+                int scale = 0;
+
+                // Why try-catch? Try a not-fully implemented JDBC driver and you'll see...
+                try {
+                    isSigned = meta.isSigned(i);
+                } catch (Exception e) {
+                }
+
+                try {
+                    nullable = meta.isNullable(i);
+                } catch (Exception e) {
+                }
+
+                try {
+                    precison = meta.getPrecision(i);
+                } catch (Exception e) {
+                }
+
+                try {
+                    scale = meta.getScale(i);
+                } catch (Exception e) {
+                }
+
                 columns[i - 1] = new ClickHouseColumnInfo(meta.getColumnName(i),
-                        convert(meta.getColumnType(i), meta.isSigned(i)),
-                        ResultSetMetaData.columnNoNulls != meta.isNullable(i), meta.getPrecision(i), meta.getScale(i));
+                        convert(meta.getColumnType(i), isSigned), ResultSetMetaData.columnNoNulls != nullable, precison,
+                        scale);
             }
 
             return new ClickHouseColumnList(columns);
-        } catch (Exception e) {
+        } catch (SQLException e) {
             throw new IllegalStateException("Failed to get columns definition from database", e);
+        } catch (RuntimeException e) {
+            throw e;
         }
 
         // return super.inferColumns(schema, query);
@@ -279,18 +350,40 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
 
         int length = columns.length;
         int estimatedSize = length * 4;
+        int indexOffset = 0;
+        int xLength = 0;
+        if (params.showDatasourceColumn()) {
+            xLength++;
+        }
+        if (params.showCustomColumns()) {
+            xLength += this.getCustomColumns().size();
+        }
+
+        length -= xLength;
+        estimatedSize += xLength * 4;
+        indexOffset += xLength;
 
         while (rs.next()) {
-            ClickHouseBuffer buffer = ClickHouseBuffer.newInstance(estimatedSize);
+            ClickHouseBuffer buffer = ClickHouseBuffer.newInstance(estimatedSize, this.getTimeZone());
+            if (params.showDatasourceColumn()) {
+                buffer.writeNonNull().writeString(this.getId());
+            }
+            if (params.showCustomColumns()) {
+                for (int i = params.showDatasourceColumn() ? 1 : 0; i < xLength; i++) {
+                    columns[i].writeValueTo(buffer);
+                }
+            }
+
             for (int i = 1; i <= length; i++) {
-                ClickHouseColumnInfo column = columns[i - 1];
+                ClickHouseColumnInfo column = columns[i - 1 + indexOffset];
                 // keep in mind that column index is zero-based
                 int index = column.isIndexed() ? column.getIndex() + 1 : i;
 
                 if (column.isNullable()) {
                     if (rs.getObject(index) == null || rs.wasNull()) {
-                        if (params.replaceNullAsDefault()) {
-                            buffer.writeNonNull().writeDefaultValue(column);
+                        if (params.nullAsDefault()) {
+                            // column.writeValueTo(buffer);
+                            buffer.writeNonNull().writeDefaultValue(column, this.getDefaultValues());
                         } else {
                             buffer.writeNull();
                         }
@@ -331,11 +424,14 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
                     case Float64:
                         buffer.writeFloat64(rs.getDouble(index));
                         break;
-                    case DateTime:
-                        buffer.writeDateTime(rs.getTimestamp(index));
-                        break;
                     case Date:
                         buffer.writeDate(rs.getDate(index));
+                        break;
+                    case DateTime:
+                        buffer.writeDateTime(rs.getTimestamp(index), column.getTimeZone());
+                        break;
+                    case DateTime64:
+                        buffer.writeDateTime64(rs.getTimestamp(index), column.getTimeZone());
                         break;
                     case Decimal:
                         buffer.writeDecimal(rs.getBigDecimal(index), column.getPrecision(), column.getScale());
@@ -351,7 +447,7 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
                         break;
                     case String:
                     default:
-                        buffer.writeString(rs.getString(index));
+                        buffer.writeString(rs.getString(index), params.nullAsDefault());
                         break;
                 }
             }
@@ -368,22 +464,30 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
     @Override
     public final String getQuoteIdentifier() {
         if (this.quoteIdentifier == null) {
-            try (Connection conn = getConnection()) {
-                quoteIdentifier = conn.getMetaData().getIdentifierQuoteString();
-            } catch (SQLException e) {
-                log.warn("Failed to get identifier quote string", e);
+            this.quoteIdentifier = DEFAULT_QUOTE_IDENTIFIER;
 
-                return DEFAULT_QUOTE_IDENTIFIER;
+            try (Connection conn = getConnection()) {
+                this.quoteIdentifier = conn.getMetaData().getIdentifierQuoteString().trim();
+            } catch (Exception e) {
+                log.warn("Failed to get identifier quote string", e);
             }
+        }
+
+        if (this.quoteIdentifier.isEmpty()) {
+            log.warn("Identifier quote string cannot be empty string, had to change it to default");
+            this.quoteIdentifier = DEFAULT_QUOTE_IDENTIFIER;
         }
 
         return this.quoteIdentifier;
     }
 
     @Override
-    public void execute(String query, ClickHouseColumnList columns, QueryParameters params,
+    public void executeQuery(String query, ClickHouseColumnList columns, QueryParameters params,
             ClickHouseResponseWriter writer) {
         log.info("Executing SQL:\n{}", query);
+
+        // String queryId = params.dedupQuery() ? this.generateUniqueQueryId(query) :
+        // null;
 
         try (Connection conn = getConnection(); Statement stmt = createStatement(conn, params)) {
             stream(getFirstQueryResult(stmt, stmt.execute(query)), columns.getColumns(), params, writer);
@@ -396,8 +500,8 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
              * )); } else { throw new IllegalStateException(
              * "Not able to handle query result due to incompatible columns: " + columns); }
              */
-        } catch (Exception e) {
-            log.error("Failed to execute SQL", e);
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to execute SQL", e);
         }
     }
 

@@ -25,31 +25,30 @@ import com.github.clickhouse.bridge.core.ClickHouseColumnList;
 import com.github.clickhouse.bridge.core.ClickHouseDataSource;
 import com.github.clickhouse.bridge.core.ClickHouseDataType;
 import com.github.clickhouse.bridge.core.ClickHouseResponseWriter;
+import com.github.clickhouse.bridge.core.IDataSourceResolver;
 import com.github.clickhouse.bridge.core.QueryParameters;
 
 import io.vertx.core.json.JsonObject;
+
+import static com.github.clickhouse.bridge.core.ClickHouseDataType.*;
 
 public class ClickHouseJenkinsDataSource extends ClickHouseDataSource {
     public static final String DATASOURCE_TYPE = "jenkins";
 
     private static final ClickHouseColumnList JENKINS_JOBS_COLUMNS = new ClickHouseColumnList(
-            new ClickHouseColumnInfo("class", ClickHouseDataType.String, false, ClickHouseColumnInfo.DEFAULT_PRECISION,
-                    ClickHouseColumnInfo.DEFAULT_SCALE),
-            new ClickHouseColumnInfo("name", ClickHouseDataType.String, false, ClickHouseColumnInfo.DEFAULT_PRECISION,
-                    ClickHouseColumnInfo.DEFAULT_SCALE),
-            new ClickHouseColumnInfo("url", ClickHouseDataType.String, false, ClickHouseColumnInfo.DEFAULT_PRECISION,
-                    ClickHouseColumnInfo.DEFAULT_SCALE),
-            new ClickHouseColumnInfo("color", ClickHouseDataType.String, true, ClickHouseColumnInfo.DEFAULT_PRECISION,
-                    ClickHouseColumnInfo.DEFAULT_SCALE));
+            new ClickHouseColumnInfo("class", ClickHouseDataType.String, false, DEFAULT_PRECISION, DEFAULT_SCALE),
+            new ClickHouseColumnInfo("name", ClickHouseDataType.String, false, DEFAULT_PRECISION, DEFAULT_SCALE),
+            new ClickHouseColumnInfo("url", ClickHouseDataType.String, false, DEFAULT_PRECISION, DEFAULT_SCALE),
+            new ClickHouseColumnInfo("color", ClickHouseDataType.String, true, DEFAULT_PRECISION, DEFAULT_SCALE));
 
-    public ClickHouseJenkinsDataSource(String id, JsonObject config) {
-        super(id, config);
+    public ClickHouseJenkinsDataSource(String id, IDataSourceResolver resolver, JsonObject config) {
+        super(id, resolver, config);
     }
 
     @Override
-    public void execute(String query, ClickHouseColumnList columns, QueryParameters parameters,
+    public void executeQuery(String query, ClickHouseColumnList columns, QueryParameters parameters,
             ClickHouseResponseWriter writer) {
-        super.execute(query, columns, parameters, writer);
+        super.executeQuery(query, columns, parameters, writer);
     }
 
     @Override

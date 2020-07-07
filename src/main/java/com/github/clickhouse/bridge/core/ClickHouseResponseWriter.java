@@ -20,6 +20,7 @@
  */
 package com.github.clickhouse.bridge.core;
 
+import io.vertx.core.Handler;
 import io.vertx.core.http.HttpServerResponse;
 
 public class ClickHouseResponseWriter {
@@ -35,6 +36,14 @@ public class ClickHouseResponseWriter {
 
     public StreamOptions getOptions() {
         return this.options;
+    }
+
+    public boolean isOpen() {
+        return !this.response.closed() && !this.response.ended();
+    }
+
+    public void setDrainHanlder(Handler<Void> handler) {
+        this.response.drainHandler(handler);
     }
 
     public void write(ClickHouseBuffer buffer) {

@@ -26,24 +26,27 @@ import java.util.List;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 
+import static com.github.clickhouse.bridge.core.ClickHouseDataType.*;
+
 public class ClickHouseColumnList {
     public static final int DEFAULT_VERSION = 1;
 
+    public static final String COLUMN_DATASOURCE = "datasource";
+
     public static final ClickHouseColumnList DEFAULT_COLUMNS_INFO = new ClickHouseColumnList(
-            new ClickHouseColumnInfo("datasource", ClickHouseDataType.String, true,
-                    ClickHouseColumnInfo.DEFAULT_PRECISION, ClickHouseColumnInfo.DEFAULT_SCALE),
-            new ClickHouseColumnInfo("type", ClickHouseDataType.String, true, ClickHouseColumnInfo.DEFAULT_PRECISION,
-                    ClickHouseColumnInfo.DEFAULT_SCALE),
-            new ClickHouseColumnInfo("query", ClickHouseDataType.String, true, ClickHouseColumnInfo.DEFAULT_PRECISION,
-                    ClickHouseColumnInfo.DEFAULT_SCALE),
-            new ClickHouseColumnInfo("parameters", ClickHouseDataType.String, true,
-                    ClickHouseColumnInfo.DEFAULT_PRECISION, ClickHouseColumnInfo.DEFAULT_SCALE));
+            new ClickHouseColumnInfo(COLUMN_DATASOURCE, ClickHouseDataType.String, true, DEFAULT_PRECISION,
+                    DEFAULT_SCALE),
+            new ClickHouseColumnInfo("type", ClickHouseDataType.String, true, DEFAULT_PRECISION, DEFAULT_SCALE),
+            new ClickHouseColumnInfo("definition", ClickHouseDataType.String, true, DEFAULT_PRECISION, DEFAULT_SCALE),
+            new ClickHouseColumnInfo("query", ClickHouseDataType.String, true, DEFAULT_PRECISION, DEFAULT_SCALE),
+            new ClickHouseColumnInfo("parameters", ClickHouseDataType.String, true, DEFAULT_PRECISION, DEFAULT_SCALE));
 
     private static final String COLUMN_HEADER = "columns format version: ";
     private static final String COLUMN_COUNT = " columns:";
 
     private static final String CONF_VERSION = "version";
-    private static final String CONF_LIST = "list";
+    private static final String CONF_QUERY = "query";
+    private static final String CONF_COLUMNS = "columns";
 
     private final int version;
     private final ClickHouseColumnInfo[] columns;
@@ -59,24 +62,34 @@ public class ClickHouseColumnList {
         for (int i = 0; i < columns.length; i++) {
             ClickHouseColumnInfo column = columns[i];
             this.columns[i] = new ClickHouseColumnInfo(
-                    column.getName() == ClickHouseColumnInfo.DEFAULT_NAME ? String.valueOf(i + 1) : column.getName(),
+                    column.getName() == ClickHouseColumnInfo.DEFAULT_NAME ? Integer.toString(i + 1) : column.getName(),
                     column.getType(), column.isNullable(), column.getPrecision(), column.getScale());
         }
     }
 
-    public static ClickHouseColumnList fromJson(JsonObject config) {
+    public ClickHouseColumnList(ClickHouseColumnList template, boolean insert, ClickHouseColumnInfo... columns) {
+        this.version = template.version;
+        this.columns = new ClickHouseColumnInfo[template.columns.length + columns.length];
+
+        if (insert) {
+            System.arraycopy(columns, 0, this.columns, 0, columns.length);
+            System.arraycopy(template.columns, 0, this.columns, columns.length, template.columns.length);
+        } else { // append
+            System.arraycopy(template.columns, 0, this.columns, 0, template.columns.length);
+            System.arraycopy(columns, 0, this.columns, template.columns.length, columns.length);
+        }
+    }
+
+    public static ClickHouseColumnList fromJson(JsonArray config) {
         int version = DEFAULT_VERSION;
         ClickHouseColumnInfo[] columns = new ClickHouseColumnInfo[0];
 
-        if (config != null) {
-            version = config.getInteger(CONF_VERSION, DEFAULT_VERSION);
-            JsonArray array = config.getJsonArray(CONF_LIST);
-
-            if (array != null) {
-                columns = new ClickHouseColumnInfo[array.size()];
-                for (int i = 0; i < array.size(); i++) {
-                    columns[i] = ClickHouseColumnInfo.fromJson(array.getJsonObject(i));
-                }
+        if (config == null) {
+            columns = new ClickHouseColumnInfo[0];
+        } else {
+            columns = new ClickHouseColumnInfo[config.size()];
+            for (int i = 0; i < columns.length; i++) {
+                columns[i] = ClickHouseColumnInfo.fromJson(config.getJsonObject(i));
             }
         }
 
@@ -88,7 +101,7 @@ public class ClickHouseColumnList {
         ClickHouseColumnInfo[] columns = new ClickHouseColumnInfo[0];
 
         if (columnsInfo != null && columnsInfo.startsWith(COLUMN_HEADER)) {
-            List<String> lines = ClickHouseBuffer.splitByChar(columnsInfo, '\n');
+            List<String> lines = ClickHouseUtils.splitByChar(columnsInfo, '\n');
             columns = new ClickHouseColumnInfo[lines.size() - 2];
 
             int index = 0;
@@ -135,6 +148,19 @@ public class ClickHouseColumnList {
         return this.columns.length > 0;
     }
 
+    public boolean containsColumn(String columnName) {
+        boolean found = false;
+
+        for (ClickHouseColumnInfo col : this.columns) {
+            if (col.getName().equals(columnName)) {
+                found = true;
+                break;
+            }
+        }
+
+        return found;
+    }
+
     public int size() {
         return this.columns.length;
     }
@@ -145,6 +171,35 @@ public class ClickHouseColumnList {
 
     public ClickHouseColumnInfo[] getColumns() {
         return Arrays.copyOf(this.columns, this.columns.length);
+    }
+
+    public void updateValues(List<ClickHouseColumnInfo> refColumns) {
+        for (int i = 0, size = refColumns == null ? 0 : refColumns.size(); i < size; i++) {
+            ClickHouseColumnInfo refCol = refColumns.get(i);
+            if (i < this.size()) {
+                ClickHouseColumnInfo col = this.getColumn(i);
+                col.value.merge(refCol.value.getValue().toString());
+            }
+        }
+    }
+
+    public String toJsonString(String query) {
+        JsonObject config = new JsonObject();
+        config.put(CONF_VERSION, this.version);
+        if (query != null) {
+            config.put(CONF_QUERY, query);
+        }
+
+        if (this.columns != null && this.columns.length > 0) {
+            JsonArray array = new JsonArray();
+            for (ClickHouseColumnInfo info : this.columns) {
+                array.add(info.toJson());
+            }
+
+            config.put(CONF_COLUMNS, array);
+        }
+
+        return config.toString();
     }
 
     @Override

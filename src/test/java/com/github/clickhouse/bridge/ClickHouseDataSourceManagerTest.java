@@ -57,4 +57,16 @@ public class ClickHouseDataSourceManagerTest {
         assertNotNull(ds);
         assertEquals(ds.getId(), uri);
     }
+
+    @Test(groups = { "sit" })
+    public void testSrvRecordSupport() {
+        ClickHouseDataSourceManager manager = new ClickHouseDataSourceManager();
+
+        String host = "_sip._udp.sip.voice.google.com";
+        String port = "5060";
+        String hostAndPort = host + ":" + port;
+
+        assertEquals(manager.resolve("jdbc://{{ _sip._udp.sip.voice.google.com }}/aaa"),
+                "jdbc://" + hostAndPort + "/aaa");
+    }
 }

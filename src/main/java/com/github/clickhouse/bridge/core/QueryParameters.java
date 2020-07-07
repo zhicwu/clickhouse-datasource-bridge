@@ -20,6 +20,9 @@
  */
 package com.github.clickhouse.bridge.core;
 
+import java.util.Map;
+import java.util.TreeMap;
+
 import io.vertx.core.json.JsonObject;
 
 public class QueryParameters {
@@ -28,114 +31,148 @@ public class QueryParameters {
     public static final String PARAM_NULL_AS_DEFAULT = "null_as_default";
     public static final String PARAM_OFFSET = "offset";
     public static final String PARAM_POSITION = "position";
+    public static final String PARAM_DATASOURCE_COLUMN = "datasource_column";
+    public static final String PARAM_CUSTOM_COLUMNS = "custom_columns";
     public static final String PARAM_DEBUG = "debug";
 
     public static final int DEFAULT_FETCH_SIZE = 1000;
     public static final int DEFAULT_MAX_ROWS = 0;
-    public static final boolean DEFAULT_NULL_AS_DEFAULT = false;
     public static final int DEFAULT_OFFSET = 0;
     public static final int DEFAULT_POSITION = 0;
-    public static final boolean DEFAULT_DEBUG = false;
 
-    private int fetchSize = DEFAULT_FETCH_SIZE;
-    private int maxRows = DEFAULT_MAX_ROWS;
-    private boolean nullAsDefault = DEFAULT_NULL_AS_DEFAULT;
-    private int offset = DEFAULT_OFFSET;
-    private int position = DEFAULT_POSITION;
-    private boolean debug = DEFAULT_DEBUG;
+    private final TypedParameter<Integer> fetchSize;
+    private final TypedParameter<Integer> maxRows;
+    private final TypedParameter<Boolean> nullAsDefault;
+    private final TypedParameter<Integer> offset;
+    private final TypedParameter<Integer> position;
+    private final TypedParameter<Boolean> datasourceColumn;
+    private final TypedParameter<Boolean> customColumns;
+    private final TypedParameter<Boolean> debug;
+
+    private final Map<String, TypedParameter<?>> params = new TreeMap<>();
+
+    public QueryParameters() {
+        ClickHouseUtils.addTypedParameter(params,
+                this.fetchSize = new TypedParameter<>(Integer.class, PARAM_FETCH_SIZE, DEFAULT_FETCH_SIZE));
+        ClickHouseUtils.addTypedParameter(params,
+                this.maxRows = new TypedParameter<>(Integer.class, PARAM_MAX_ROWS, DEFAULT_MAX_ROWS));
+        ClickHouseUtils.addTypedParameter(params,
+                this.nullAsDefault = new TypedParameter<>(Boolean.class, PARAM_NULL_AS_DEFAULT, false));
+        ClickHouseUtils.addTypedParameter(params,
+                this.offset = new TypedParameter<>(Integer.class, PARAM_OFFSET, DEFAULT_OFFSET));
+        ClickHouseUtils.addTypedParameter(params,
+                this.position = new TypedParameter<>(Integer.class, PARAM_POSITION, DEFAULT_POSITION));
+        ClickHouseUtils.addTypedParameter(params,
+                this.datasourceColumn = new TypedParameter<>(Boolean.class, PARAM_DATASOURCE_COLUMN, false));
+        ClickHouseUtils.addTypedParameter(params,
+                this.customColumns = new TypedParameter<>(Boolean.class, PARAM_CUSTOM_COLUMNS, false));
+        ClickHouseUtils.addTypedParameter(params, this.debug = new TypedParameter<>(Boolean.class, PARAM_DEBUG, false));
+    }
 
     public QueryParameters(String uri) {
+        this();
+
         merge(uri);
     }
 
     public QueryParameters(JsonObject... params) {
+        this();
+
         for (JsonObject parameters : params) {
             merge(parameters);
         }
     }
 
-    public QueryParameters merge(QueryParameters params) {
-        if (params != null) {
-            fetchSize = params.fetchSize;
-            maxRows = params.maxRows;
-            nullAsDefault = params.nullAsDefault;
-            offset = params.offset;
-            position = params.position;
-            debug = params.debug;
+    public QueryParameters merge(QueryParameters p) {
+        if (p != null) {
+            for (TypedParameter<?> tp : p.params.values()) {
+                TypedParameter x = this.params.get(tp.getName());
+                if (x != null && x.getType() == tp.getType()) {
+                    x.merge(tp);
+                }
+            }
         }
 
         return this;
     }
 
-    public QueryParameters merge(JsonObject parameters) {
-        if (parameters != null) {
-            fetchSize = parameters.getInteger(PARAM_FETCH_SIZE, DEFAULT_FETCH_SIZE);
-            maxRows = parameters.getInteger(PARAM_MAX_ROWS, DEFAULT_MAX_ROWS);
-            nullAsDefault = parameters.getBoolean(PARAM_NULL_AS_DEFAULT, DEFAULT_NULL_AS_DEFAULT);
-            offset = parameters.getInteger(PARAM_OFFSET, DEFAULT_OFFSET);
-            position = parameters.getInteger(PARAM_POSITION, DEFAULT_POSITION);
-            debug = parameters.getBoolean(PARAM_DEBUG, DEFAULT_DEBUG);
+    public QueryParameters merge(JsonObject p) {
+        if (p != null) {
+            for (TypedParameter<?> tp : this.params.values()) {
+                if (!PARAM_DEBUG.equals(tp.getName())) {
+                    tp.merge(p);
+                }
+            }
         }
 
         return this;
     }
 
     public QueryParameters merge(String uri) {
-        JsonObject params = new JsonObject();
-
         int index = uri == null ? -1 : uri.indexOf('?');
         if (index >= 0 && uri.length() > index) {
             String query = uri.substring(index + 1);
 
-            for (String param : ClickHouseBuffer.splitByChar(query, '&')) {
+            for (String param : ClickHouseUtils.splitByChar(query, '&')) {
                 index = param.indexOf('=');
                 if (index > 0) {
                     String key = param.substring(0, index);
                     String value = param.substring(index + 1);
 
-                    if (PARAM_FETCH_SIZE.equals(key) || PARAM_MAX_ROWS.equals(key) || PARAM_OFFSET.equals(key)
-                            || PARAM_POSITION.equals(key)) {
-                        params.put(key, Integer.valueOf(value));
-                    } else if (PARAM_NULL_AS_DEFAULT.equals(key) || PARAM_DEBUG.equals(key)) {
-                        params.put(key, Boolean.valueOf(value));
-                    } else {
-                        params.put(key, value);
+                    TypedParameter<?> p = this.params.get(key);
+                    if (p != null) {
+                        p.merge(value);
                     }
                 }
             }
         }
 
-        return merge(params);
+        return this;
     }
 
     public int getFetchSize() {
-        return this.fetchSize;
+        return this.fetchSize.getValue();
     }
 
     public int getMaxRows() {
-        return this.maxRows;
+        return this.maxRows.getValue();
     }
 
-    public boolean replaceNullAsDefault() {
-        return this.nullAsDefault;
+    public boolean nullAsDefault() {
+        return this.nullAsDefault.getValue();
     }
 
     public int getOffset() {
-        return this.offset;
+        return this.offset.getValue();
     }
 
     public int getPosition() {
-        return this.position;
+        return this.position.getValue();
+    }
+
+    public boolean showDatasourceColumn() {
+        return this.datasourceColumn.getValue();
+    }
+
+    public boolean showCustomColumns() {
+        return this.customColumns.getValue();
     }
 
     public boolean isDebug() {
-        return debug;
+        return this.debug.getValue();
     }
 
     public String toQueryString() {
-        return new StringBuilder().append(PARAM_FETCH_SIZE).append('=').append(fetchSize).append('&')
-                .append(PARAM_MAX_ROWS).append('=').append(maxRows).append('&').append(PARAM_OFFSET).append('=')
-                .append(offset).append('&').append(PARAM_POSITION).append('=').append(position).append('&')
-                .append(PARAM_NULL_AS_DEFAULT).append('=').append(nullAsDefault).toString();
+        StringBuilder sb = new StringBuilder();
+
+        for (TypedParameter<?> p : this.params.values()) {
+            sb.append('&').append(p.toKeyValuePairString());
+        }
+
+        if (sb.length() > 0) {
+            sb.deleteCharAt(0);
+        }
+
+        return sb.toString();
     }
 }

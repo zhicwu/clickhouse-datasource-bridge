@@ -22,6 +22,7 @@ This project includes:
   Caffeine cache under Apache License, Version 2.0
   Checker Qual under The MIT License
   ClickHouse DataSource Bridge under Apache License, Version 2.0
+  dnsjava under BSD-2-Clause
   error-prone annotations under Apache 2.0
   HikariCP under The Apache Software License, Version 2.0
   Jackson-annotations under The Apache Software License, Version 2.0
@@ -40,7 +41,6 @@ This project includes:
   Netty/Resolver under Apache License, Version 2.0
   Netty/Resolver/DNS under Apache License, Version 2.0
   Netty/Transport under Apache License, Version 2.0
-  Project Lombok under The MIT License
   SLF4J API Module under MIT License
   SLF4J LOG4J-12 Binding under MIT License
   testng under Apache 2.0
@@ -49,5 +49,6 @@ This project includes:
   vertx-auth-common under The Apache Software License, Version 2.0 or Eclipse Public License - v 1.0
   vertx-config under Apache License, Version 2.0
   vertx-web under The Apache Software License, Version 2.0 or Eclipse Public License - v 2.0
+  vertx-web-client under The Apache Software License, Version 2.0 or Eclipse Public License - v 1.0
   vertx-web-common under The Apache Software License, Version 2.0 or Eclipse Public License - v 1.0
 

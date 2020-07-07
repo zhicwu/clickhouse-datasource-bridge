@@ -20,26 +20,31 @@
  */
 package com.github.clickhouse.bridge;
 
-import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.net.URI;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Map.Entry;
 
 import com.github.clickhouse.bridge.core.ClickHouseDataSource;
+import com.github.clickhouse.bridge.core.ClickHouseUtils;
+import com.github.clickhouse.bridge.core.DnsResolver;
+import com.github.clickhouse.bridge.core.IDataSourceResolver;
 import com.github.clickhouse.bridge.jdbc.ClickHouseJdbcDataSource;
 
 import io.vertx.core.json.JsonObject;
 
-public class ClickHouseDataSourceManager {
+public class ClickHouseDataSourceManager implements IDataSourceResolver {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ClickHouseDataSourceManager.class);
 
     private static final String CONF_JDBC_URL = "jdbcUrl";
 
     private final Map<String, Constructor<ClickHouseDataSource>> types = new HashMap<>();
     private final Map<String, ClickHouseDataSource> mappings = new HashMap<>();
+
+    private final DnsResolver resolver = new DnsResolver();
 
     protected ClickHouseDataSourceManager() {
         this.registerType(ClickHouseJdbcDataSource.DATASOURCE_TYPE, ClickHouseJdbcDataSource.class.getName());
@@ -51,7 +56,8 @@ public class ClickHouseDataSourceManager {
         try {
             Class<ClickHouseDataSource> clazz = (Class<ClickHouseDataSource>) this.getClass().getClassLoader()
                     .loadClass(className);
-            Constructor<ClickHouseDataSource> constructor = clazz.getConstructor(String.class, JsonObject.class);
+            Constructor<ClickHouseDataSource> constructor = clazz.getConstructor(String.class,
+                    IDataSourceResolver.class, JsonObject.class);
 
             types.put(typeName, constructor);
         } catch (Exception e) {
@@ -67,14 +73,14 @@ public class ClickHouseDataSourceManager {
                 Constructor<ClickHouseDataSource> constructor = types.get(type);
 
                 if (constructor != null) {
-                    ds = constructor.newInstance(uri, null);
+                    ds = constructor.newInstance(uri, this, null);
                 }
             } catch (Exception e) {
                 log.error("Failed to create data source [" + uri + "]", e);
             }
         }
 
-        return ds == null && nonNullRequired ? new ClickHouseDataSource(uri, null) : ds;
+        return ds == null && nonNullRequired ? new ClickHouseDataSource(uri, this, null) : ds;
     }
 
     /**
@@ -91,29 +97,43 @@ public class ClickHouseDataSourceManager {
 
             // could it be JDBC data source?
             if (ds == null && config.containsKey(CONF_JDBC_URL)) {
-                ds = new ClickHouseJdbcDataSource(id, config);
+                ds = new ClickHouseJdbcDataSource(id, this, config);
             }
         }
 
         // fall back to default implementation
         if (ds == null) {
-            ds = new ClickHouseDataSource(id, config);
+            ds = new ClickHouseDataSource(id, this, config);
         }
 
         return ds;
     }
 
-    protected void update(String id, JsonObject config) {
-        ClickHouseDataSource ds = mappings.remove(id);
-        if (ds != null) {
-            // TODO check if there's any important change(e.g. jdbcUrl for Database) first
-            try {
-                ds.close();
-            } catch (IOException e) {
-            }
+    protected void remove(String id, ClickHouseDataSource ds) {
+        if (ds == null) {
+            return;
         }
 
-        if (config != null) {
+        log.info("Removing datasource [{}]...", id);
+
+        try {
+            ds.close();
+        } catch (Exception e) {
+        }
+    }
+
+    protected void update(String id, JsonObject config) {
+        ClickHouseDataSource ds = mappings.get(id);
+
+        boolean addDataSource = false;
+        if (ds == null) {
+            addDataSource = true;
+        } else if (ds.isDifferentFrom(config)) {
+            remove(id, mappings.remove(id));
+            addDataSource = true;
+        }
+
+        if (addDataSource && config != null) {
             log.info("Adding datasource [{}]...", id);
 
             try {
@@ -141,33 +161,27 @@ public class ClickHouseDataSourceManager {
             log.info("No datasource configuration found, which is fine");
 
             mappings.entrySet().forEach(mapping -> {
-                log.info("Removing datasource [{}]...", mapping.getKey());
-                try {
-                    mapping.setValue(null).close();
-                } catch (IOException e) {
-                }
+                remove(mapping.getKey(), mapping.setValue(null));
             });
 
             mappings.clear();
         } else {
             HashSet<String> keys = new HashSet<>();
-            config.forEach(entry -> {
-                String id = entry.getKey();
-                if (id != null) {
-                    keys.add(id);
-                    update(id, entry.getValue() instanceof JsonObject ? (JsonObject) entry.getValue() : null);
+            for (Entry<String, Object> entry : config) {
+                String key = entry.getKey();
+                Object value = entry.getValue();
+                if (key != null && value instanceof JsonObject) {
+                    keys.add(key);
+                    update(key, (JsonObject) value);
                 }
-            });
+            }
 
             Iterator<Map.Entry<String, ClickHouseDataSource>> entryIt = mappings.entrySet().iterator();
             while (entryIt.hasNext()) {
                 Map.Entry<String, ClickHouseDataSource> entry = entryIt.next();
-                if (!keys.contains(entry.getKey())) {
-                    log.info("Removing datasource [{}]...", entry.getKey());
-                    try {
-                        entry.setValue(null).close();
-                    } catch (IOException e) {
-                    }
+                String id = entry.getKey();
+                if (!keys.contains(id)) {
+                    remove(id, entry.setValue(null));
                     entryIt.remove();
                 }
             }
@@ -216,5 +230,9 @@ public class ClickHouseDataSourceManager {
         }
 
         return ds;
+    }
+
+    public final String resolve(String uri) {
+        return ClickHouseUtils.applyVariables(uri, this.resolver::apply);
     }
 }

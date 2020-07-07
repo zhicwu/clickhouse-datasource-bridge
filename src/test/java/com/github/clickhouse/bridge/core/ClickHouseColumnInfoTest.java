@@ -22,6 +22,8 @@ package com.github.clickhouse.bridge.core;
 
 import static org.testng.Assert.*;
 
+import java.util.Date;
+
 import org.testng.annotations.Test;
 
 import io.vertx.core.json.JsonObject;
@@ -39,6 +41,8 @@ public class ClickHouseColumnInfoTest {
         assertEquals(c.isNullable(), nullableOrNot);
         assertEquals(c.getPrecision(), 3);
         assertEquals(c.getScale(), 1);
+        assertNull(c.getTimeZone());
+        assertEquals(c.getValue(), Long.valueOf(1L));
     }
 
     @Test(groups = { "unit" })
@@ -52,7 +56,7 @@ public class ClickHouseColumnInfoTest {
         JsonObject json = new JsonObject();
         assertEquals(ClickHouseColumnInfo.fromJson(json).getName(), ClickHouseColumnInfo.DEFAULT_NAME);
         assertEquals(ClickHouseColumnInfo.fromJson(json).getType(), ClickHouseColumnInfo.DEFAULT_TYPE);
-        assertEquals(ClickHouseColumnInfo.fromJson(json).isNullable(), ClickHouseColumnInfo.DEFAULT_NULLABLE);
+        assertEquals(ClickHouseColumnInfo.fromJson(json).isNullable(), ClickHouseDataType.DEFAULT_NULLABLE);
         json.put("name", "");
         assertEquals(ClickHouseColumnInfo.fromJson(json).getName(), "");
         json.put("name", name);
@@ -65,6 +69,14 @@ public class ClickHouseColumnInfoTest {
         assertEquals(ClickHouseColumnInfo.fromJson(json).isNullable(), !nullable);
         json.put("nullable", nullable);
         assertEquals(ClickHouseColumnInfo.fromJson(json), c);
+
+        ClickHouseColumnInfo intCol = ClickHouseColumnInfo.fromJson(
+                new JsonObject("{\"name\":\"int_col\",\"type\":\"Int32\",\"nullable\":false,\"value\":\"610000\"}"));
+        ClickHouseColumnInfo strCol = ClickHouseColumnInfo.fromJson(
+                new JsonObject("{\"name\":\"str_col\",\"type\":\"String\",\"nullable\":false,\"value\":\"Chengdu\"}"));
+
+        assertEquals(intCol.getValue(), Integer.valueOf("610000"));
+        assertEquals(strCol.getValue(), "Chengdu");
     }
 
     @Test(groups = { "unit" })
@@ -88,6 +100,30 @@ public class ClickHouseColumnInfoTest {
         // now try some weird names
         String weirdName = "``cl`o``u`mn``";
         assertEquals(ClickHouseColumnInfo.fromString("`````cl``o````u``mn`````").getName(), weirdName);
+
+        assertEquals(ClickHouseColumnInfo.fromString("d DateTime").toString(), "`d` DateTime");
+        // assertEquals(ClickHouseColumnInfo.fromString("d DateTime DEFAULT
+        // 1").toString(), "`d` DateTime DEFAULT 1");
+        assertEquals(ClickHouseColumnInfo.fromString("d Nullable(DateTime)").toString(), "`d` Nullable(DateTime)");
+        // assertEquals(ClickHouseColumnInfo.fromString("d Nullable(DateTime) DEFAULT
+        // 1").toString(),
+        // "`d` Nullable(DateTime) DEFAULT 1");
+        assertEquals(ClickHouseColumnInfo.fromString("d DateTime('Asia/Chongqing')").toString(),
+                "`d` DateTime('Asia/Chongqing')");
+        assertEquals(ClickHouseColumnInfo.fromString("d Nullable(DateTime('Asia/Chongqing'))").toString(),
+                "`d` Nullable(DateTime('Asia/Chongqing'))");
+        // assertEquals(ClickHouseColumnInfo.fromString("d
+        // Nullable(DateTime('Asia/Chongqing')) DEFAULT 1").toString(),
+        // "`d` Nullable(DateTime('Asia/Chongqing')) DEFAULT 1");
+        // assertEquals(ClickHouseColumnInfo.fromString("d Nullable(DateTime64) DEFAULT
+        // 1").toString(),
+        // "`d` Nullable(DateTime64(3)) DEFAULT 1");
+        // assertEquals(ClickHouseColumnInfo.fromString("d Nullable(DateTime64(2))
+        // DEFAULT 1").toString(),
+        // "`d` Nullable(DateTime64(3)) DEFAULT 1");
+        assertEquals(
+                ClickHouseColumnInfo.fromString("d Nullable(DateTime64(2, 'Asia/Chongqing')) DEFAULT 1").toString(),
+                "`d` Nullable(DateTime64(3,'Asia/Chongqing'))");
     }
 
     @Test(groups = { "unit" })

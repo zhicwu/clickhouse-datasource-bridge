@@ -1,0 +1,13 @@
+{
+  "$schema": "../../../../config/jdbc-datasource-schema.json",
+  
+  "test-legacy": {
+    "jdbcUrl": "jdbc:hive2://<servers>/<database>;serviceDiscoveryMode=zooKeeper;zooKeeperNamespace=<namespace>",
+    "driverClassName": "org.apache.hive.jdbc.HiveDriver",
+    "username": "<user name>",
+    "password": "<password>",
+    "parameters": {
+      "fetch_size": 1000
+    }
+  }
+}

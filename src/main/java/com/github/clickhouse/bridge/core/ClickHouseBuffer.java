@@ -24,111 +24,44 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Objects;
 import java.util.TimeZone;
-import java.util.concurrent.TimeUnit;
 
 import io.vertx.core.buffer.Buffer;
 
+import static com.github.clickhouse.bridge.core.ClickHouseUtils.*;
+
 public final class ClickHouseBuffer {
-    private static final int U_INT8_MAX = (1 << 8) - 1;
-    private static final int U_INT16_MAX = (1 << 16) - 1;
-    private static final long U_INT32_MAX = (1L << 32) - 1;
-    private static final long MILLIS_IN_DAY = TimeUnit.DAYS.toMillis(1);
-
-    private static final long DATETIME_MAX = U_INT32_MAX * 1000L;
-
-    private static final String EMPTY_STRING = "";
-
     protected final Buffer buffer;
-    protected final TimeZone timeZone;
+    protected final TimeZone timezone;
 
-    public static ClickHouseBuffer wrap(Buffer buffer, TimeZone timeZone) {
-        return new ClickHouseBuffer(buffer, timeZone);
+    public static ClickHouseBuffer wrap(Buffer buffer, TimeZone timezone) {
+        return new ClickHouseBuffer(buffer, timezone);
     }
 
     public static ClickHouseBuffer wrap(Buffer buffer) {
         return wrap(buffer, null);
     }
 
-    public static ClickHouseBuffer newInstance(TimeZone timeZone, int initialSizeHint) {
-        return new ClickHouseBuffer(Buffer.buffer(initialSizeHint), timeZone);
+    public static ClickHouseBuffer newInstance(int initialSizeHint, TimeZone timezone) {
+        return new ClickHouseBuffer(Buffer.buffer(initialSizeHint), timezone);
     }
 
     public static ClickHouseBuffer newInstance(int initialSizeHint) {
-        return newInstance(null, initialSizeHint);
+        return newInstance(initialSizeHint, null);
     }
 
     public static Buffer asBuffer(String str) {
         return newInstance(str.length() * 2).writeString(str).buffer;
     }
 
-    static void checkArgument(int value, int minValue) {
-        if (value < minValue) {
-            throw new IllegalArgumentException(new StringBuilder().append("Given value(").append(value)
-                    .append(") should NOT less than ").append(minValue).toString());
-        }
-    }
-
-    static void checkArgument(long value, long minValue) {
-        if (value < minValue) {
-            throw new IllegalArgumentException(new StringBuilder().append("Given value(").append(value)
-                    .append(") should NOT less than ").append(minValue).toString());
-        }
-    }
-
-    static void checkArgument(int value, int minValue, int maxValue) {
-        if (value < minValue || value > maxValue) {
-            throw new IllegalArgumentException(new StringBuilder().append("Given value(").append(value)
-                    .append(") should between ").append(minValue).append(" and ").append(maxValue).toString());
-        }
-    }
-
-    static void checkArgument(long value, long minValue, long maxValue) {
-        if (value < minValue || value > maxValue) {
-            throw new IllegalArgumentException(new StringBuilder().append("Given value(").append(value)
-                    .append(") should between ").append(minValue).append(" and ").append(maxValue).toString());
-        }
-    }
-
-    static List<String> splitByChar(String str, char delimiter) {
-        return splitByChar(str, delimiter, true);
-    }
-
-    static List<String> splitByChar(String str, char delimiter, boolean tokenize) {
-        LinkedList<String> list = new LinkedList<>();
-
-        if (str != null) {
-            int startIndex = 0;
-
-            for (int i = 0, length = str.length(); i <= length; i++) {
-                if (i == length || str.charAt(i) == delimiter) {
-                    if (tokenize && i >= startIndex) {
-                        String matched = str.substring(startIndex, i).trim();
-                        if (matched.length() > 0) {
-                            list.add(matched);
-                        }
-                    } else {
-                        list.add(str.substring(startIndex, i));
-                    }
-
-                    startIndex = Math.min(i + 1, length);
-                }
-            }
-        }
-
-        return list;
-    }
-
-    private ClickHouseBuffer(Buffer buffer, TimeZone timeZone) {
+    private ClickHouseBuffer(Buffer buffer, TimeZone timezone) {
         this.buffer = buffer != null ? buffer : Buffer.buffer();
-        this.timeZone = timeZone != null ? timeZone : TimeZone.getDefault();
+        this.timezone = timezone;
     }
 
     public ClickHouseBuffer writeUnsignedLeb128(int value) {
-        checkArgument(value, 0);
+        ClickHouseUtils.checkArgument(value, 0);
 
         int remaining = value >>> 7;
         while (remaining != 0) {
@@ -170,13 +103,13 @@ public final class ClickHouseBuffer {
     }
 
     public ClickHouseBuffer writeInt8(int value) {
-        checkArgument(value, Byte.MIN_VALUE);
+        ClickHouseUtils.checkArgument(value, Byte.MIN_VALUE);
 
         return value > Byte.MAX_VALUE ? writeUInt8(value) : writeByte((byte) value);
     }
 
     public ClickHouseBuffer writeUInt8(int value) {
-        checkArgument(value, 0, U_INT8_MAX);
+        ClickHouseUtils.checkArgument(value, 0, U_INT8_MAX);
 
         return writeByte((byte) (value & 0xFFL));
     }
@@ -187,13 +120,13 @@ public final class ClickHouseBuffer {
     }
 
     public ClickHouseBuffer writeInt16(int value) {
-        checkArgument(value, Short.MIN_VALUE);
+        ClickHouseUtils.checkArgument(value, Short.MIN_VALUE);
 
         return value > U_INT16_MAX ? writeUInt16(value) : writeInt16((short) value);
     }
 
     public ClickHouseBuffer writeUInt16(int value) {
-        checkArgument(value, 0, U_INT16_MAX);
+        ClickHouseUtils.checkArgument(value, 0, U_INT16_MAX);
 
         return writeInt16((short) (value & 0xFFFFL));
     }
@@ -205,7 +138,7 @@ public final class ClickHouseBuffer {
     }
 
     public ClickHouseBuffer writeUInt32(long value) {
-        checkArgument(value, 0, U_INT32_MAX);
+        ClickHouseUtils.checkArgument(value, 0, U_INT32_MAX);
 
         return writeInt32((int) (value & 0xFFFFFFFFL));
     }
@@ -223,7 +156,7 @@ public final class ClickHouseBuffer {
     }
 
     public ClickHouseBuffer writeUInt64(long value) {
-        checkArgument(value, 0);
+        ClickHouseUtils.checkArgument(value, 0);
 
         return writeInt64(value);
     }
@@ -277,11 +210,22 @@ public final class ClickHouseBuffer {
     }
 
     public ClickHouseBuffer writeDateTime(Date value) {
+        return writeDateTime(value, null);
+    }
+
+    public ClickHouseBuffer writeDateTime(Date value, TimeZone tz) {
         Objects.requireNonNull(value);
 
-        long time = value.getTime();
-        if (time < 0L) { // 1970-01-01 00:00:00
-            time = 0L;
+        return writeDateTime(value.getTime(), tz);
+    }
+
+    public ClickHouseBuffer writeDateTime(long time, TimeZone tz) {
+        if ((tz = tz == null ? this.timezone : tz) != null) {
+            time += tz.getOffset(time);
+        }
+
+        if (time <= 0L) { // 0000-00-00 00:00:00
+            time = 1L;
         } else if (time > DATETIME_MAX) { // 2106-02-07 06:28:15
             time = DATETIME_MAX;
         }
@@ -299,71 +243,103 @@ public final class ClickHouseBuffer {
         return this;
     }
 
+    public ClickHouseBuffer writeDateTime64(Date value) {
+        return writeDateTime64(value, null);
+    }
+
+    public ClickHouseBuffer writeDateTime64(Date value, TimeZone tz) {
+        Objects.requireNonNull(value);
+
+        return writeDateTime64(value.getTime(), tz);
+    }
+
+    // ClickHouse's DateTime64 supports precision from 0 to 18, but JDBC only
+    // supports 3(millisecond)
+    public ClickHouseBuffer writeDateTime64(long time, TimeZone tz) {
+        if ((tz = tz == null ? this.timezone : tz) != null) {
+            time += tz.getOffset(time);
+        }
+
+        if (time <= 0L) { // 0000-00-00 00:00:00.000
+            time = 1L;
+        }
+
+        return this.writeUInt64(time);
+    }
+
     public ClickHouseBuffer writeDate(Date value) {
         Objects.requireNonNull(value);
 
-        long localMillis = value.getTime() + timeZone.getOffset(value.getTime());
+        TimeZone tz = this.timezone == null ? TimeZone.getDefault() : this.timezone;
+        long localMillis = value.getTime() + tz.getOffset(value.getTime());
         int daysSinceEpoch = (int) (localMillis / MILLIS_IN_DAY);
 
         return writeUInt16(daysSinceEpoch);
     }
 
     public ClickHouseBuffer writeString(String value) {
+        return writeString(value, false);
+    }
+
+    public ClickHouseBuffer writeString(String value, boolean normalize) {
         Objects.requireNonNull(value);
 
-        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = (normalize ? value.replace('\r', ' ') : value).getBytes(StandardCharsets.UTF_8);
         return writeUnsignedLeb128(bytes.length).writeBytes(bytes);
     }
 
-    public ClickHouseBuffer writeDefaultValue(ClickHouseColumnInfo column) {
+    public ClickHouseBuffer writeDefaultValue(ClickHouseColumnInfo column, DefaultValues defaultValues) {
         switch (column.getType()) {
             case Int8:
-                writeInt8(0);
+                writeInt8(defaultValues.int8.getValue());
                 break;
             case Int16:
-                writeInt16(0);
+                writeInt16(defaultValues.int16.getValue());
                 break;
             case Int32:
-                writeInt32(0);
+                writeInt32(defaultValues.int32.getValue());
                 break;
             case Int64:
-                writeInt64(0);
+                writeInt64(defaultValues.int64.getValue());
                 break;
             case UInt8:
-                writeUInt8(0);
+                writeUInt8(defaultValues.uint8.getValue());
                 break;
             case UInt16:
-                writeUInt16(0);
+                writeUInt16(defaultValues.uint16.getValue());
                 break;
             case UInt32:
-                writeUInt32(0);
+                writeUInt32(defaultValues.uint32.getValue());
                 break;
             case UInt64:
-                writeUInt64(0);
+                writeUInt64(defaultValues.uint64.getValue());
                 break;
             case Float32:
-                writeFloat32(0.0F);
+                writeFloat32(defaultValues.float32.getValue());
                 break;
             case Float64:
-                writeFloat64(0.0D);
+                writeFloat64(defaultValues.float64.getValue());
                 break;
             case DateTime:
-                writeUInt32(1);
+                writeUInt32(defaultValues.datetime.getValue());
+                break;
+            case DateTime64:
+                writeUInt64(defaultValues.datetime64.getValue());
                 break;
             case Date:
-                writeUInt16(1);
+                writeUInt16(defaultValues.date.getValue());
                 break;
             case Decimal:
-                writeDecimal(BigDecimal.ZERO, column.getPrecision(), column.getScale());
+                writeDecimal(defaultValues.decimal.getValue(), column.getPrecision(), column.getScale());
                 break;
             case Decimal32:
-                writeDecimal32(BigDecimal.ZERO, column.getScale());
+                writeDecimal32(defaultValues.decimal32.getValue(), column.getScale());
                 break;
             case Decimal64:
-                writeDecimal64(BigDecimal.ZERO, column.getScale());
+                writeDecimal64(defaultValues.decimal64.getValue(), column.getScale());
                 break;
             case Decimal128:
-                writeDecimal128(BigDecimal.ZERO, column.getScale());
+                writeDecimal128(defaultValues.decimal128.getValue(), column.getScale());
                 break;
             case String:
             default:

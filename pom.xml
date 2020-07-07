@@ -5,7 +5,7 @@
     <groupId>com.github.zhicwu</groupId>
     <artifactId>clickhouse-datasource-bridge</artifactId>
     <packaging>jar</packaging>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
     <name>ClickHouse DataSource Bridge</name>
     <url>http://github.com/zhicwu/clickhouse-datasource-bridge</url>
     <description>An alternative implementation of JDBC Bridge for ClickHouse.</description>
@@ -13,6 +13,7 @@
 
     <properties>
         <caffeine.version>2.8.2</caffeine.version>
+        <dnsjava.version>3.1.0</dnsjava.version>
         <vertx.version>3.8.5</vertx.version>
         <slf4j.version>1.7.30</slf4j.version>
         <hikaricp.version>3.4.5</hikaricp.version>
@@ -75,6 +76,12 @@
         </dependency>
 
         <dependency>
+            <groupId>dnsjava</groupId>
+            <artifactId>dnsjava</artifactId>
+            <version>${dnsjava.version}</version>
+        </dependency>
+
+        <dependency>
             <groupId>io.vertx</groupId>
             <artifactId>vertx-core</artifactId>
             <version>${vertx.version}</version>
@@ -123,7 +130,7 @@
             </exclusions>
         </dependency>
 
-        <!-- JDBC drivers and connectors for other type of datasources -->
+        <!-- JDBC drivers and connectors for other type of datasources 
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-jdbc</artifactId>
@@ -199,6 +206,7 @@
             <version>${datastax-java.version}</version>
             <scope>provided</scope>
         </dependency>
+        -->
     </dependencies>
 
     <!-- http://central.sonatype.org/pages/apache-maven.html -->

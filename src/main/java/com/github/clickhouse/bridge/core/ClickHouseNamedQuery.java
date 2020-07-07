@@ -25,11 +25,14 @@ import java.util.Objects;
 import io.vertx.core.json.JsonObject;
 
 public class ClickHouseNamedQuery {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ClickHouseNamedQuery.class);
+
     private static final String CONF_QUERY = "query";
     private static final String CONF_COLUMNS = "columns";
     private static final String CONF_PARAMETERS = "parameters";
 
     private final String id;
+    private final String digest;
     private final String query;
     private final ClickHouseColumnList columns;
 
@@ -39,9 +42,13 @@ public class ClickHouseNamedQuery {
         Objects.requireNonNull(config);
 
         this.id = id;
+        this.digest = ClickHouseUtils.digest(config);
 
-        this.query = config.getString(CONF_QUERY);
-        this.columns = ClickHouseColumnList.fromJson(config.getJsonObject(CONF_COLUMNS));
+        String namedQuery = config.getString(CONF_QUERY);
+        Objects.requireNonNull(namedQuery);
+
+        this.query = namedQuery;
+        this.columns = ClickHouseColumnList.fromJson(config.getJsonArray(CONF_COLUMNS));
         this.parameters = new QueryParameters(config.getJsonObject(CONF_PARAMETERS));
     }
 
@@ -63,5 +70,17 @@ public class ClickHouseNamedQuery {
 
     public QueryParameters getParameters() {
         return this.parameters;
+    }
+
+    public final boolean isDifferentFrom(JsonObject newConfig) {
+        String newDigest = ClickHouseUtils.digest(newConfig == null ? null : newConfig.encode());
+        boolean isDifferent = this.digest == null || this.digest.length() == 0 || !this.digest.equals(newDigest);
+        if (isDifferent) {
+            log.info("Query configuration of [{}] is changed from [{}] to [{}]", this.id, digest, newDigest);
+        } else {
+            log.debug("Query configuration of [{}] remains the same", this.id);
+        }
+
+        return isDifferent;
     }
 }

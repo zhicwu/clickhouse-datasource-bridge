@@ -1,0 +1,141 @@
+{
+  "$schema": "../../../../config/jdbc-datasource-schema.json",
+
+  "test-datasource": {
+    "jdbcUrl": "jdbc:mysql://<host>:<port>/<database>?useCompression=true&useOldAliasMetadataBehavior=true",
+    "dataSource": {
+      "user": "<username>",
+      "password": "<password>"
+    },
+    "columns": [
+      {
+        "name": "c_string",
+        "type": "String",
+        "nullable": false,
+        "value": "2"
+      },
+      {
+        "name": "c_int8",
+        "type": "Int8",
+        "nullable": false,
+        "value": "2"
+      },
+      {
+        "name": "c_int16",
+        "type": "Int16",
+        "nullable": false,
+        "value": "2"
+      },
+      {
+        "name": "c_int32",
+        "type": "Int32",
+        "nullable": false,
+        "value": "2"
+      },
+      {
+        "name": "c_int64",
+        "type": "Int64",
+        "nullable": false,
+        "value": "2"
+      },
+      {
+        "name": "c_uint8",
+        "type": "UInt8",
+        "nullable": false,
+        "value": "2"
+      },
+      {
+        "name": "c_uint16",
+        "type": "UInt16",
+        "nullable": false,
+        "value": "2"
+      },
+      {
+        "name": "c_uint32",
+        "type": "UInt32",
+        "nullable": false,
+        "value": "2"
+      },
+      {
+        "name": "c_uint64",
+        "type": "UInt64",
+        "nullable": false,
+        "value": "2"
+      },
+      {
+        "name": "c_float32",
+        "type": "Float32",
+        "nullable": false,
+        "value": "2.0"
+      },
+      {
+        "name": "c_float64",
+        "type": "Float64",
+        "nullable": false,
+        "value": "2.0"
+      },
+      {
+        "name": "c_date",
+        "type": "Date",
+        "nullable": false,
+        "value": "2"
+      },
+      {
+        "name": "c_datetime",
+        "type": "DateTime",
+        "nullable": false,
+        "value": "2"
+      },
+      {
+        "name": "c_datetime64",
+        "type": "DateTime64",
+        "nullable": false,
+        "value": "2"
+      },
+      {
+        "name": "c_decimal",
+        "type": "Decimal",
+        "nullable": false,
+        "value": "2.0"
+      },
+      {
+        "name": "c_decimal32",
+        "type": "Decimal32",
+        "nullable": false,
+        "value": "2.0"
+      },
+      {
+        "name": "c_decimal64",
+        "type": "Decimal64",
+        "nullable": false,
+        "value": "2.0"
+      },
+      {
+        "name": "c_decimal128",
+        "type": "Decimal128",
+        "nullable": false,
+        "value": "2.0"
+      }
+    ],
+    "defaults": {
+      "Int8": 3,
+      "Int16": 3,
+      "Int32": 3,
+      "Int64": 3,
+      "UInt8": 3,
+      "UInt16": 3,
+      "UInt32": 3,
+      "UInt64": 3,
+      "Float32": 3.0,
+      "Float64": 3.0,
+      "Date": 3,
+      "DateTime": 3,
+      "DateTime64": 3.0,
+      "Decimal": 3.0,
+      "Decimal32": 3.0,
+      "Decimal64": 3.0,
+      "Decimal128": 3.0,
+      "String": "3"
+    }
+  }
+}

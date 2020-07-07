@@ -20,20 +20,21 @@
  */
 package com.github.clickhouse.bridge;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
-import java.util.stream.Stream;
 
 import com.github.clickhouse.bridge.core.ClickHouseBuffer;
+import com.github.clickhouse.bridge.core.ClickHouseColumnInfo;
 import com.github.clickhouse.bridge.core.ClickHouseColumnList;
 import com.github.clickhouse.bridge.core.ClickHouseDataSource;
+import com.github.clickhouse.bridge.core.ClickHouseDataType;
 import com.github.clickhouse.bridge.core.ClickHouseNamedQuery;
 import com.github.clickhouse.bridge.core.ClickHouseResponseWriter;
+import com.github.clickhouse.bridge.core.ClickHouseUtils;
 import com.github.clickhouse.bridge.core.QueryParameters;
-import com.github.clickhouse.bridge.core.StreamOptions;
+import com.github.clickhouse.bridge.core.QueryParser;
 
 import io.vertx.config.ConfigRetriever;
 import io.vertx.config.ConfigRetrieverOptions;
@@ -42,6 +43,7 @@ import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
 import io.vertx.core.http.HttpServer;
+import io.vertx.core.http.HttpServerOptions;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.JsonArray;
@@ -51,6 +53,8 @@ import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.handler.ResponseContentTypeHandler;
 import io.vertx.ext.web.handler.TimeoutHandler;
+
+import static com.github.clickhouse.bridge.core.ClickHouseDataType.*;
 
 /**
  * Unified data source bridge for ClickHouse.
@@ -68,23 +72,15 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
 
     private static final String RESPONSE_CONTENT_TYPE = "application/octet-stream";
 
-    private static final String PARAM_CONNECTION_STRING = "connection_string";
-    private static final String PARAM_SCHEMA = "schema";
-    private static final String PARAM_TABLE = "table";
-    private static final String PARAM_COLUMNS = "columns";
-    private static final String PARAM_QUERY = "query";
-
-    private static final String EXPR_QUERY = PARAM_QUERY + "=";
-    private static final String EXPR_FROM = " FROM ";
-
-    private static final String PING_RESPONSE = "Ok.\n";
+    private static final String WRITE_RESPONSE = "Ok.";
+    private static final String PING_RESPONSE = WRITE_RESPONSE + "\n";
 
     private final ClickHouseDataSourceManager datasources = new ClickHouseDataSourceManager();
     private final ClickHouseNamedQueryManager queries = new ClickHouseNamedQueryManager();
 
     @Override
     public void start() {
-        JsonObject config = loadJsonObject(CONFIG_PATH + "/server.json");
+        JsonObject config = ClickHouseUtils.loadJsonFromFile(CONFIG_PATH + "/server.json");
 
         datasources.registerTypes(config.getJsonObject("datasources"));
 
@@ -93,7 +89,7 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
         initConfig(CONFIG_PATH + "/datasources", scanPeriod, datasources::reload);
         initConfig(CONFIG_PATH + "/queries", scanPeriod, queries::reload);
 
-        startServer(config);
+        startServer(config, ClickHouseUtils.loadJsonFromFile(CONFIG_PATH + "/httpd.json"));
     }
 
     private void initConfig(String configPath, long scanPeriod, Consumer<JsonObject> loader) {
@@ -126,8 +122,8 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
         });
     }
 
-    private void startServer(JsonObject config) {
-        HttpServer server = vertx.createHttpServer();
+    private void startServer(JsonObject bridgeServerConfig, JsonObject httpServerConfig) {
+        HttpServer server = vertx.createHttpServer(new HttpServerOptions(httpServerConfig));
         // vertx.createHttpServer(new
         // HttpServerOptions().setTcpNoDelay(false).setTcpKeepAlive(true)
         // .setTcpFastOpen(true).setLogActivity(true));
@@ -138,8 +134,8 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
         router.route().handler(BodyHandler.create()).handler(this::responseHandlers)
                 .handler(ResponseContentTypeHandler.create()).failureHandler(this::errorHandler);
 
-        long requestTimeout = config.getLong("requestTimeout", 5000L);
-        long queryTimeout = Math.max(requestTimeout, config.getLong("queryTimeout", 120000L));
+        long requestTimeout = bridgeServerConfig.getLong("requestTimeout", 5000L);
+        long queryTimeout = Math.max(requestTimeout, bridgeServerConfig.getLong("queryTimeout", 120000L));
 
         // stateless endpoints
         router.get("/ping").handler(TimeoutHandler.create(requestTimeout)).handler(this::handlePing);
@@ -149,9 +145,11 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
                 .handler(this::handleIdentifierQuote);
         router.post("/").produces(RESPONSE_CONTENT_TYPE).handler(TimeoutHandler.create(queryTimeout))
                 .handler(this::handleQuery);
+        router.post("/write").produces(RESPONSE_CONTENT_TYPE).handler(TimeoutHandler.create(queryTimeout))
+                .handler(this::handleWrite);
 
         log.info("Starting web server...");
-        int port = config.getInteger("serverPort", DEFAULT_SERVER_PORT);
+        int port = bridgeServerConfig.getInteger("serverPort", DEFAULT_SERVER_PORT);
         server.requestHandler(router).listen(port, action -> {
             if (action.succeeded()) {
                 log.info("Server http://localhost:{} started in {} ms", port, System.currentTimeMillis() - startTime);
@@ -166,22 +164,22 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
 
         String path = ctx.normalisedPath();
         log.debug("[{}] Context:\n{}", path, ctx.data());
-        log.debug("[{}] Body:\n{}", path, ctx.getBodyAsString());
         log.debug("[{}] Headers:\n{}", path, req.headers());
         log.debug("[{}] Parameters:\n{}", path, req.params());
+        log.trace("[{}] Body:\n{}", path, ctx.getBodyAsString());
 
         HttpServerResponse resp = ctx.response();
 
         resp.endHandler(handler -> {
-            log.debug("[{}] About to end response...", ctx.normalisedPath());
+            log.trace("[{}] About to end response...", ctx.normalisedPath());
         });
 
         resp.closeHandler(handler -> {
-            log.debug("[{}] About to close response...", ctx.normalisedPath());
+            log.trace("[{}] About to close response...", ctx.normalisedPath());
         });
 
         resp.drainHandler(handler -> {
-            log.debug("[{}] About to drain response...", ctx.normalisedPath());
+            log.trace("[{}] About to drain response...", ctx.normalisedPath());
         });
 
         resp.exceptionHandler(throwable -> {
@@ -201,17 +199,23 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
     }
 
     private void handleColumnsInfo(RoutingContext ctx) {
-        HttpServerRequest req = ctx.request();
+        final QueryParser parser = QueryParser.fromRequest(ctx, datasources);
 
-        String rawQuery = req.getParam(PARAM_TABLE);
+        String rawQuery = parser.getRawQuery();
 
         log.info("Raw query:\n{}", rawQuery);
 
-        String uri = req.getParam(PARAM_CONNECTION_STRING);
+        String uri = parser.getConnectionString();
+        // boolean useNull =
+        // Boolean.parseBoolean(req.getParam(PARAM_EXT_TABLE_USE_NULLS));
 
-        QueryParameters params = new QueryParameters(uri);
+        QueryParameters params = parser.getQueryParameters();
         ClickHouseDataSource ds = datasources.get(uri, params.isDebug());
-        params = ds == null ? params : new QueryParameters(ds.getQueryParameters()).merge(params);
+        String dsId = uri;
+        if (ds != null) {
+            dsId = ds.getId();
+            params = ds.newQueryParameters(params);
+        }
 
         final String columnsInfo;
         if (params.isDebug()) {
@@ -219,8 +223,24 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
         } else {
             // even it's a named query, the column list could be empty
             ClickHouseNamedQuery namedQuery = queries.get(rawQuery);
-            columnsInfo = namedQuery != null && namedQuery.hasColumn() ? namedQuery.getColumns().toString()
-                    : ds.getColumns(req.getParam(PARAM_SCHEMA), normalizeQuery(rawQuery));
+            ClickHouseColumnList columnList = namedQuery != null && namedQuery.hasColumn() ? namedQuery.getColumns()
+                    : ds.getColumns(parser.getSchema(), parser.getNormalizedQuery());
+
+            List<ClickHouseColumnInfo> additionalColumns = new ArrayList<ClickHouseColumnInfo>();
+            if (params.showDatasourceColumn()) {
+                additionalColumns.add(new ClickHouseColumnInfo(ClickHouseColumnList.COLUMN_DATASOURCE,
+                        ClickHouseDataType.String, true, DEFAULT_PRECISION, DEFAULT_SCALE, null, dsId));
+            }
+            if (params.showCustomColumns() && ds != null) {
+                additionalColumns.addAll(ds.getCustomColumns());
+            }
+
+            if (additionalColumns.size() > 0) {
+                columnList = new ClickHouseColumnList(columnList, true,
+                        additionalColumns.toArray(new ClickHouseColumnInfo[0]));
+            }
+
+            columnsInfo = columnList.toString();
         }
 
         log.debug("Columns info:\n[{}]", columnsInfo);
@@ -228,44 +248,42 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
     }
 
     private void handleIdentifierQuote(RoutingContext ctx) {
-        ClickHouseDataSource ds = datasources.get(ctx.request().getParam(PARAM_CONNECTION_STRING), true);
+        String uri = QueryParser.extractConnectionString(ctx, datasources);
+        ClickHouseDataSource ds = datasources.get(uri, true);
 
-        ctx.response().end(ClickHouseBuffer
-                .asBuffer(ds == null ? ClickHouseDataSource.DEFAULT_QUOTE_IDENTIFIER : ds.getQuoteIdentifier()));
+        // ds == null ? ClickHouseDataSource.DEFAULT_QUOTE_IDENTIFIER :
+        ctx.response().end(ClickHouseBuffer.asBuffer(ds.getQuoteIdentifier()));
     }
 
     private void handleQuery(RoutingContext ctx) {
-        final String uri = ctx.request().getParam(PARAM_CONNECTION_STRING);
+        final QueryParser parser = QueryParser.fromRequest(ctx, datasources);
 
         ctx.response().setChunked(true);
 
         vertx.executeBlocking(promise -> {
-            log.debug("About to execute query...");
+            log.trace("About to execute query...");
 
-            QueryParameters params = new QueryParameters(uri);
-            ClickHouseDataSource ds = datasources.get(uri, params.isDebug());
-            params = ds == null ? params : new QueryParameters(ds.getQueryParameters()).merge(params);
+            QueryParameters params = parser.getQueryParameters();
+            ClickHouseDataSource ds = datasources.get(parser.getConnectionString(), params.isDebug());
+            params = ds == null ? params : ds.newQueryParameters(params);
 
-            String generatedQuery = ctx.getBodyAsString();
-            // remove optional prefix
-            if (generatedQuery != null && generatedQuery.startsWith(EXPR_QUERY)) {
-                generatedQuery = generatedQuery.substring(EXPR_QUERY.length());
-            }
+            String generatedQuery = parser.getRawQuery();
+            String normalizedQuery = parser.getNormalizedQuery();
+            // try if it's a named query first
+            ClickHouseNamedQuery namedQuery = queries.get(normalizedQuery);
+            // in case the "query" is a local file...
+            normalizedQuery = ds.loadSavedQueryAsNeeded(normalizedQuery);
 
-            String normalizedQuery = normalizeQuery(generatedQuery);
             log.debug("Generated query:\n{}\nNormalized query:\n{}", generatedQuery, normalizedQuery);
 
-            final HttpServerRequest req = ctx.request();
             final HttpServerResponse resp = ctx.response();
 
-            ClickHouseResponseWriter writer = new ClickHouseResponseWriter(resp, new StreamOptions(req.params()));
+            ClickHouseResponseWriter writer = new ClickHouseResponseWriter(resp, parser.getStreamOptions());
 
             if (params.isDebug()) {
-                ClickHouseDataSource.writeDebugInfo(ds.getId(), ds.getType(), normalizedQuery, params, writer);
+                ClickHouseDataSource.writeDebugInfo(ds.getId(), ds.getType(),
+                        ds.getColumns(parser.getSchema(), normalizedQuery), normalizedQuery, params, writer);
             } else {
-                // try if it's a named query first
-                ClickHouseNamedQuery namedQuery = queries.get(normalizedQuery);
-
                 long executionStartTime = System.currentTimeMillis();
                 if (namedQuery != null) {
                     log.debug("Found named query: [{}]", namedQuery);
@@ -275,12 +293,38 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
                     // - named query 'test' is: select a, b, c from table
                     // - clickhouse query: select b, a from jdbc('?','','test')
                     // - requested columns: b, a
-                    ds.execute(namedQuery, ClickHouseColumnList.fromString(req.getParam(PARAM_COLUMNS)), writer);
+                    ds.executeQuery(namedQuery, parser.getColumnList(), writer);
                 } else {
                     // columnsInfo could be different from what we responded earlier, so let's parse
                     // it again
-                    ds.execute(normalizedQuery.indexOf(' ') > 0 ? normalizedQuery : generatedQuery,
-                            ClickHouseColumnList.fromString(req.getParam(PARAM_COLUMNS)), params, writer);
+                    Boolean containsWhitespace = null;
+                    for (int i = 0; i < normalizedQuery.length(); i++) {
+                        char ch = normalizedQuery.charAt(i);
+                        if (Character.isWhitespace(ch)) {
+                            if (containsWhitespace != null) {
+                                containsWhitespace = Boolean.TRUE;
+                                break;
+                            }
+                        } else if (containsWhitespace == null) {
+                            containsWhitespace = Boolean.FALSE;
+                        }
+                    }
+
+                    ClickHouseColumnList queryColumns = parser.getColumnList();
+                    // unfortunately default values will be lost between two requests, so we have to
+                    // add it back...
+                    List<ClickHouseColumnInfo> additionalColumns = new ArrayList<ClickHouseColumnInfo>();
+                    if (params.showDatasourceColumn()) {
+                        additionalColumns.add(new ClickHouseColumnInfo(ClickHouseColumnList.COLUMN_DATASOURCE,
+                                ClickHouseDataType.String, true, DEFAULT_PRECISION, DEFAULT_SCALE, null, ds.getId()));
+                    }
+                    if (params.showCustomColumns()) {
+                        additionalColumns.addAll(ds.getCustomColumns());
+                    }
+
+                    queryColumns.updateValues(additionalColumns);
+                    ds.executeQuery(Boolean.TRUE.equals(containsWhitespace) ? normalizedQuery : generatedQuery,
+                            queryColumns, params, writer);
                 }
 
                 log.debug("Completed execution in {} ms.", System.currentTimeMillis() - executionStartTime);
@@ -297,118 +341,52 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
         });
     }
 
-    static String normalizeQuery(String query) {
-        Objects.requireNonNull(query);
+    // https://github.com/ClickHouse/ClickHouse/blob/bee5849c6a7dba20dbd24dfc5fd5a786745d90ff/programs/odbc-bridge/MainHandler.cpp#L169
+    private void handleWrite(RoutingContext ctx) {
+        final QueryParser parser = QueryParser.fromRequest(ctx, datasources, true);
 
-        String normalizedQuery = query;
+        ctx.response().setChunked(true);
 
-        // since we checked if this could be a named query before calling this method,
-        // we know the extracted query will be either a table name or an adhoc query
-        String extractedQuery = null;
-        int index = query.indexOf(EXPR_FROM);
-        if (index > 0 && query.length() > (index = index + EXPR_FROM.length())) {
-            // assume quote is just one character and it always exists
-            char quote = query.charAt(index++);
+        vertx.executeBlocking(promise -> {
+            log.trace("About to execute mutation...");
 
-            int dotIndex = query.indexOf('.', index);
+            QueryParameters params = parser.getQueryParameters();
+            ClickHouseDataSource ds = datasources.get(parser.getConnectionString(), params.isDebug());
+            params = ds == null ? params : ds.newQueryParameters(params);
 
-            if (dotIndex > index && query.length() > dotIndex && query.charAt(dotIndex - 1) == quote
-                    && query.charAt(dotIndex + 1) == quote) { // has schema
-                dotIndex += 2;
-                int endIndex = query.lastIndexOf(quote);
-                if (endIndex > dotIndex) {
-                    extractedQuery = query.substring(dotIndex, endIndex);
-                }
-            } else if (quote == '"' || quote == '`') {
-                int endIndex = query.lastIndexOf(quote);
-                if (endIndex > index) {
-                    extractedQuery = query.substring(index, endIndex);
-                }
-            }
-        }
+            final HttpServerRequest req = ctx.request();
+            final HttpServerResponse resp = ctx.response();
 
-        normalizedQuery = extractedQuery != null ? extractedQuery.trim() : normalizedQuery.trim();
+            final String generatedQuery = parser.getRawQuery();
 
-        // unescape String is mission impossible so we only considered below ones:
-        // \t Insert a tab in the text at this point.
-        // \b Insert a backspace in the text at this point.
-        // \n Insert a newline in the text at this point.
-        // \r Insert a carriage return in the text at this point.
-        // \f Insert a formfeed in the text at this point.
-        // \' Insert a single quote character in the text at this point.
-        // \" Insert a double quote character in the text at this point.
-        // \\ Insert a backslash character in the text at this point.
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0, len = normalizedQuery.length(); i < len; i++) {
-            char ch = normalizedQuery.charAt(i);
-            if (ch == '\\' && i + 1 < len) {
-                char nextCh = normalizedQuery.charAt(i + 1);
-                switch (nextCh) {
-                    case 't':
-                        builder.append('\t');
-                        i++;
-                        break;
-                    case 'b':
-                        builder.append('\b');
-                        i++;
-                        break;
-                    case 'n':
-                        builder.append('\n');
-                        i++;
-                        break;
-                    case 'r':
-                        builder.append('\r');
-                        i++;
-                        break;
-                    case 'f':
-                        builder.append('\f');
-                        i++;
-                        break;
-                    case '\'':
-                        builder.append('\'');
-                        i++;
-                        break;
-                    case '"':
-                        builder.append('"');
-                        i++;
-                        break;
-                    case '\\':
-                        builder.append('\\');
-                        i++;
-                        break;
-                    default:
-                        builder.append(ch);
-                        break;
-                }
+            String normalizedQuery = parser.getNormalizedQuery();
+
+            // try if it's a named query first
+            ClickHouseNamedQuery namedQuery = queries.get(normalizedQuery);
+            // in case the "query" is a local file...
+            normalizedQuery = ds.loadSavedQueryAsNeeded(normalizedQuery);
+
+            log.debug("Generated query:\n{}\nNormalized query:\n{}", generatedQuery, normalizedQuery);
+
+            // req.pipeTo(null);
+            resp.write(ClickHouseBuffer.asBuffer(WRITE_RESPONSE));
+
+            promise.complete();
+        }, false, res -> {
+            if (res.succeeded()) {
+                log.debug("Wrote back query result");
+                ctx.response().end();
             } else {
-                builder.append(ch);
+                ctx.fail(res.cause());
             }
-        }
-
-        return builder.toString().trim();
-    }
-
-    private static JsonObject loadJsonObject(String file) {
-        log.info("Loading configuration from [{}]...", file);
-
-        JsonObject config = null;
-
-        StringBuilder contentBuilder = new StringBuilder();
-        try (Stream<String> stream = Files.lines(Paths.get(file), StandardCharsets.UTF_8)) {
-            stream.forEach(s -> contentBuilder.append(s).append('\n'));
-            config = new JsonObject(contentBuilder.toString());
-        } catch (Exception e) {
-            log.warn("Failed to read json config", e);
-        }
-
-        return config == null ? new JsonObject() : config;
+        });
     }
 
     public static void main(String[] args) {
         startTime = System.currentTimeMillis();
 
         // https://github.com/eclipse-vertx/vert.x/blob/master/src/main/generated/io/vertx/core/VertxOptionsConverter.java
-        Vertx vertx = Vertx.vertx(new VertxOptions(loadJsonObject(CONFIG_PATH + "/vertx.json")));
+        Vertx vertx = Vertx.vertx(new VertxOptions(ClickHouseUtils.loadJsonFromFile(CONFIG_PATH + "/vertx.json")));
 
         vertx.deployVerticle(new DataSourceBridgeVerticle());
     }
