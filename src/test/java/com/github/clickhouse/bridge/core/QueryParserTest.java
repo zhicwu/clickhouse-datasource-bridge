@@ -85,4 +85,22 @@ public class QueryParserTest {
         query = "SELECT \"col1\", \"col2\" FROM \"some_schema\".\"" + embeddedQuery + "\"";
         assertEquals(QueryParser.normalizeQuery(query), embeddedQuery);
     }
+
+    @Test(groups = { "unit" })
+    public void testExtractTableName() {
+        assertEquals(QueryParser.extractTableName(null), null);
+        assertEquals(QueryParser.extractTableName(""), "");
+        assertEquals(QueryParser.extractTableName("a"), "a");
+        assertEquals(QueryParser.extractTableName("a.a"), "a.a");
+
+        String table = "`schema`.`table`";
+        assertEquals(QueryParser.extractTableName("SELECT * FROM " + table), table);
+        assertEquals(QueryParser.extractTableName("SELECT * from " + table), table);
+        assertEquals(QueryParser.extractTableName("SELECT * FROM  " + table + " where col1=11"), table);
+        assertEquals(QueryParser.extractTableName("SELECT * FROM\r" + table + " where col1=11"), table);
+        assertEquals(QueryParser.extractTableName("SELECT * FROM (select col1 from " + table + " where col1=11) a"),
+                table);
+        assertEquals(QueryParser.extractTableName(
+                "SELECT col1, ' from b' as a FROM (select col1 from " + table + " where col1=11) a"), table);
+    }
 }

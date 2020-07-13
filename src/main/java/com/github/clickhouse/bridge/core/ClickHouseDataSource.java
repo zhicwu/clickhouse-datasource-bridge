@@ -36,6 +36,8 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 
+import static com.github.clickhouse.bridge.core.ClickHouseDataType.*;
+
 public class ClickHouseDataSource implements Closeable {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ClickHouseDataSource.class);
 
@@ -194,12 +196,24 @@ public class ClickHouseDataSource implements Closeable {
     }
 
     public final void executeQuery(ClickHouseNamedQuery query, ClickHouseColumnList requestColumns,
-            ClickHouseResponseWriter writer) {
+            QueryParameters params, ClickHouseResponseWriter writer) {
         Objects.requireNonNull(query);
         Objects.requireNonNull(requestColumns);
+        Objects.requireNonNull(params);
+
+        List<ClickHouseColumnInfo> additionalColumns = new ArrayList<ClickHouseColumnInfo>();
+        if (params.showDatasourceColumn()) {
+            additionalColumns.add(new ClickHouseColumnInfo(ClickHouseColumnList.COLUMN_DATASOURCE,
+                    ClickHouseDataType.String, true, DEFAULT_PRECISION, DEFAULT_SCALE, null, this.getId()));
+        }
+        if (params.showCustomColumns()) {
+            additionalColumns.addAll(this.getCustomColumns());
+        }
+        requestColumns.updateValues(additionalColumns);
 
         ClickHouseColumnList allColumns = query.getColumns();
-        for (int i = 0; i < requestColumns.size(); i++) {
+
+        for (int i = additionalColumns.size(); i < requestColumns.size(); i++) {
             ClickHouseColumnInfo r = requestColumns.getColumn(i);
             for (int j = 0; j < allColumns.size(); j++) {
                 if (r.getName().equals(allColumns.getColumn(j).getName())) {
@@ -209,7 +223,7 @@ public class ClickHouseDataSource implements Closeable {
             }
         }
 
-        executeQuery(loadSavedQueryAsNeeded(query.getQuery()), requestColumns, query.getParameters(), writer);
+        executeQuery(loadSavedQueryAsNeeded(query.getQuery()), requestColumns, params, writer);
     }
 
     public final String loadSavedQueryAsNeeded(String normalizedQuery) {
@@ -234,8 +248,9 @@ public class ClickHouseDataSource implements Closeable {
         writeDebugInfo(this.id, getType(), null, query, parameters, writer);
     }
 
-    public void executeUpdate(String schema, String table, ClickHouseColumnList columns, QueryParameters parameters) {
-        
+    public void executeUpdate(String schema, String table, ClickHouseColumnList columns, QueryParameters parameters,
+            ClickHouseBuffer buffer) {
+        log.info("Discard mutation: schema=[{}], table=[{}]", schema, table);
     }
 
     public String getQuoteIdentifier() {

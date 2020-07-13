@@ -135,13 +135,17 @@ public class ClickHouseColumnInfo {
                         }
                     } else {
                         nullable = false;
-                        int defaultIndex = declaredType.indexOf(' ');
-                        if (defaultIndex != -1) {
-                            defaultValue = declaredType.substring(defaultIndex + 1).trim();
-                            declaredType = declaredType.substring(0, defaultIndex);
 
-                            i = columnInfo.length() - 1;
+                        if (DEFAULT_VALUE_SUPPORT) {
+                            // FIXME this is buggy
+                            int defaultIndex = declaredType.indexOf(' ');
+
+                            if (defaultIndex != -1) {
+                                defaultValue = declaredType.substring(defaultIndex + 1).trim();
+                                declaredType = declaredType.substring(0, defaultIndex);
+                            }
                         }
+                        i = columnInfo.length() - 1;
                     }
 
                     // datetime, datetime64 and decimals

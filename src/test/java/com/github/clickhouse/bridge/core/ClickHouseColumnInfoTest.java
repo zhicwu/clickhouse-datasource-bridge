@@ -101,6 +101,10 @@ public class ClickHouseColumnInfoTest {
         String weirdName = "``cl`o``u`mn``";
         assertEquals(ClickHouseColumnInfo.fromString("`````cl``o````u``mn`````").getName(), weirdName);
 
+        assertEquals(ClickHouseColumnInfo.fromString("f Decimal(19, 4)").toString(), "`f` Decimal(19,4)");
+        assertEquals(ClickHouseColumnInfo.fromString("f Nullable(Decimal(19, 4))").toString(),
+                "`f` Nullable(Decimal(19,4))");
+
         assertEquals(ClickHouseColumnInfo.fromString("d DateTime").toString(), "`d` DateTime");
         // assertEquals(ClickHouseColumnInfo.fromString("d DateTime DEFAULT
         // 1").toString(), "`d` DateTime DEFAULT 1");

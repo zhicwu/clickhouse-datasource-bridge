@@ -23,6 +23,7 @@ package com.github.clickhouse.bridge.core;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
 import java.util.Date;
 import java.util.Objects;
 import java.util.TimeZone;
@@ -32,6 +33,9 @@ import io.vertx.core.buffer.Buffer;
 import static com.github.clickhouse.bridge.core.ClickHouseUtils.*;
 
 public final class ClickHouseBuffer {
+    // self-maintained readerIndex
+    protected int position = 0;
+
     protected final Buffer buffer;
     protected final TimeZone timezone;
 
@@ -60,6 +64,31 @@ public final class ClickHouseBuffer {
         this.timezone = timezone;
     }
 
+    public int length() {
+        // writerIndex of the inner Netty ByteBuf
+        return this.buffer.length();
+    }
+
+    public boolean isExausted() {
+        return this.position >= this.buffer.length();
+    }
+
+    public int readUnsignedLeb128() {
+        int value = 0;
+        int read;
+        int count = 0;
+        do {
+            read = this.buffer.getByte(this.position++) & 0xff;
+            value |= (read & 0x7f) << (count * 7);
+            count++;
+        } while (((read & 0x80) == 0x80) && count < 5);
+
+        if ((read & 0x80) == 0x80) {
+            throw new IllegalArgumentException("invalid LEB128 sequence");
+        }
+        return value;
+    }
+
     public ClickHouseBuffer writeUnsignedLeb128(int value) {
         ClickHouseUtils.checkArgument(value, 0);
 
@@ -74,10 +103,25 @@ public final class ClickHouseBuffer {
         return this;
     }
 
+    public byte readByte() {
+        return this.buffer.getByte(this.position++);
+    }
+
     public ClickHouseBuffer writeByte(byte value) {
         this.buffer.appendByte(value);
 
         return this;
+    }
+
+    public void readBytes(byte[] bytes) {
+        readBytes(bytes, 0, bytes.length);
+    }
+
+    public void readBytes(byte[] bytes, int offset, int length) {
+        byte[] readBytes = this.buffer.getBytes(this.position, this.position + length);
+        this.position += length;
+
+        System.arraycopy(readBytes, 0, bytes, 0, length);
     }
 
     public ClickHouseBuffer writeBytes(byte[] value) {
@@ -86,8 +130,26 @@ public final class ClickHouseBuffer {
         return this;
     }
 
+    public boolean readBoolean() {
+        byte value = this.readByte();
+
+        ClickHouseUtils.checkArgument(value, 0, 1);
+        return value == (byte) 1;
+    }
+
     public ClickHouseBuffer writeBoolean(boolean value) {
         return writeByte(value ? (byte) 1 : (byte) 0);
+    }
+
+    /*
+     * public boolean readIsNull() throws IOException { int value = readByte(); if
+     * (value == -1) throw new EOFException();
+     * 
+     * validateInt(value, 0, 1, "nullable"); return value != 0; }
+     */
+
+    public boolean readNull() {
+        return this.readBoolean();
     }
 
     public ClickHouseBuffer writeNull() {
@@ -96,6 +158,10 @@ public final class ClickHouseBuffer {
 
     public ClickHouseBuffer writeNonNull() {
         return writeBoolean(false);
+    }
+
+    public byte readInt8() {
+        return this.readByte();
     }
 
     public ClickHouseBuffer writeInt8(byte value) {
@@ -108,10 +174,22 @@ public final class ClickHouseBuffer {
         return value > Byte.MAX_VALUE ? writeUInt8(value) : writeByte((byte) value);
     }
 
+    public short readUInt8() {
+        return (short) (this.readByte() & 0xFFL);
+    }
+
     public ClickHouseBuffer writeUInt8(int value) {
         ClickHouseUtils.checkArgument(value, 0, U_INT8_MAX);
 
         return writeByte((byte) (value & 0xFFL));
+    }
+
+    public short readInt16() {
+        short value = this.buffer.getShortLE(this.position);
+
+        this.position += 2;
+
+        return value;
     }
 
     public ClickHouseBuffer writeInt16(short value) {
@@ -125,10 +203,22 @@ public final class ClickHouseBuffer {
         return value > U_INT16_MAX ? writeUInt16(value) : writeInt16((short) value);
     }
 
+    public int readUInt16() {
+        return (int) (this.readInt16() & 0xFFFFL);
+    }
+
     public ClickHouseBuffer writeUInt16(int value) {
         ClickHouseUtils.checkArgument(value, 0, U_INT16_MAX);
 
         return writeInt16((short) (value & 0xFFFFL));
+    }
+
+    public int readInt32() {
+        int value = this.buffer.getIntLE(this.position);
+
+        this.position += 4;
+
+        return value;
     }
 
     public ClickHouseBuffer writeInt32(int value) {
@@ -137,10 +227,22 @@ public final class ClickHouseBuffer {
         return this;
     }
 
+    public long readUInt32() {
+        return this.readInt32() & 0xFFFFFFFFL;
+    }
+
     public ClickHouseBuffer writeUInt32(long value) {
         ClickHouseUtils.checkArgument(value, 0, U_INT32_MAX);
 
         return writeInt32((int) (value & 0xFFFFFFFFL));
+    }
+
+    public long readInt64() {
+        long value = this.buffer.getLongLE(this.position);
+
+        this.position += 8;
+
+        return value;
     }
 
     public ClickHouseBuffer writeInt64(long value) {
@@ -155,14 +257,32 @@ public final class ClickHouseBuffer {
         return writeBytes(bytes);
     }
 
+    public BigInteger readUInt64() {
+        return new BigInteger(Long.toUnsignedString(this.readInt64()));
+    }
+
     public ClickHouseBuffer writeUInt64(long value) {
         ClickHouseUtils.checkArgument(value, 0);
 
         return writeInt64(value);
     }
 
+    public ClickHouseBuffer writeUInt64(BigInteger value) {
+        ClickHouseUtils.checkArgument(value, BigInteger.ZERO);
+
+        return writeInt64(value.longValue());
+    }
+
+    public float readFloat32() {
+        return Float.intBitsToFloat(this.readInt32());
+    }
+
     public ClickHouseBuffer writeFloat32(float value) {
         return writeInt32(Float.floatToIntBits(value));
+    }
+
+    public double readFloat64() {
+        return Double.longBitsToDouble(this.readInt64());
     }
 
     public ClickHouseBuffer writeFloat64(double value) {
@@ -184,17 +304,38 @@ public final class ClickHouseBuffer {
         return value.multiply(BigDecimal.valueOf(10).pow(scale)).toBigInteger();
     }
 
+    public BigDecimal readDecimal(int precision, int scale) {
+        return precision > 18 ? readDecimal128(scale) : (precision > 9 ? readDecimal64(scale) : readDecimal32(scale));
+    }
+
     public ClickHouseBuffer writeDecimal(BigDecimal value, int precision, int scale) {
         return precision > 18 ? writeDecimal128(value, scale)
                 : (precision > 9 ? writeDecimal64(value, scale) : writeDecimal32(value, scale));
+    }
+
+    public BigDecimal readDecimal32(int scale) {
+        return new BigDecimal(this.readInt32()).divide(BigDecimal.valueOf(10).pow(scale));
     }
 
     public ClickHouseBuffer writeDecimal32(BigDecimal value, int scale) {
         return writeInt32(toBigInteger(value, scale).intValue());
     }
 
+    public BigDecimal readDecimal64(int scale) {
+        return new BigDecimal(this.readInt64()).divide(BigDecimal.valueOf(10).pow(scale));
+    }
+
     public ClickHouseBuffer writeDecimal64(BigDecimal value, int scale) {
         return writeInt64(toBigInteger(value, scale).longValue());
+    }
+
+    public BigDecimal readDecimal128(int scale) {
+        byte[] r = new byte[16];
+        for (int i = 16; i > 0; i--) {
+            r[i - 1] = this.readByte();
+        }
+
+        return new BigDecimal(new BigInteger(r), scale);
     }
 
     public ClickHouseBuffer writeDecimal128(BigDecimal value, int scale) {
@@ -207,6 +348,20 @@ public final class ClickHouseBuffer {
         writeBytes(new byte[16 - bytes.length]);
 
         return this;
+    }
+
+    public Timestamp readDateTime() {
+        return readDateTime(null);
+    }
+
+    public Timestamp readDateTime(TimeZone tz) {
+        long time = this.readUInt32() * 1000L;
+
+        if ((tz = tz == null ? this.timezone : tz) != null) {
+            time -= tz.getOffset(time);
+        }
+
+        return new Timestamp(time <= 0L ? 1L : time);
     }
 
     public ClickHouseBuffer writeDateTime(Date value) {
@@ -243,6 +398,24 @@ public final class ClickHouseBuffer {
         return this;
     }
 
+    public Timestamp readDateTime64() {
+        return readDateTime64(null);
+    }
+
+    public Timestamp readDateTime64(TimeZone tz) {
+        BigInteger time = this.readUInt64();
+
+        if ((tz = tz == null ? this.timezone : tz) != null) {
+            time = time.subtract(BigInteger.valueOf(tz.getOffset(time.longValue())));
+        }
+
+        if (time.compareTo(BigInteger.ZERO) < 0) { // 0000-00-00 00:00:00
+            time = BigInteger.ONE;
+        }
+
+        return new Timestamp(time.longValue());
+    }
+
     public ClickHouseBuffer writeDateTime64(Date value) {
         return writeDateTime64(value, null);
     }
@@ -267,14 +440,41 @@ public final class ClickHouseBuffer {
         return this.writeUInt64(time);
     }
 
+    public java.sql.Date readDate() {
+        // long time = this.readUInt16() * MILLIS_IN_DAY;
+
+        // TimeZone tz = this.timezone == null ? TimeZone.getDefault() : this.timezone;
+        // time -= tz.getOffset(time);
+
+        // return new Date(time <= 0L ? 1L : time);
+
+        int daysSinceEpoch = this.readUInt16();
+        return new java.sql.Date(daysSinceEpoch * MILLIS_IN_DAY);
+    }
+
     public ClickHouseBuffer writeDate(Date value) {
         Objects.requireNonNull(value);
 
         TimeZone tz = this.timezone == null ? TimeZone.getDefault() : this.timezone;
-        long localMillis = value.getTime() + tz.getOffset(value.getTime());
-        int daysSinceEpoch = (int) (localMillis / MILLIS_IN_DAY);
+        long time = value.getTime();
+        int daysSinceEpoch = (int) ((time + tz.getOffset(time)) / MILLIS_IN_DAY);
 
         return writeUInt16(daysSinceEpoch);
+    }
+
+    public String readString() {
+        int length = this.readUnsignedLeb128();
+        byte[] bytes = new byte[length];
+        this.readBytes(bytes);
+
+        return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    public String readFixedString(int length) {
+        byte[] bytes = new byte[length];
+        this.readBytes(bytes);
+
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 
     public ClickHouseBuffer writeString(String value) {

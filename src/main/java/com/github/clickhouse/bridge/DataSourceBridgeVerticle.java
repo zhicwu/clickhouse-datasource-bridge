@@ -22,7 +22,6 @@ package com.github.clickhouse.bridge;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.function.Consumer;
 
 import com.github.clickhouse.bridge.core.ClickHouseBuffer;
@@ -293,7 +292,7 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
                     // - named query 'test' is: select a, b, c from table
                     // - clickhouse query: select b, a from jdbc('?','','test')
                     // - requested columns: b, a
-                    ds.executeQuery(namedQuery, parser.getColumnList(), writer);
+                    ds.executeQuery(namedQuery, parser.getColumnList(), params, writer);
                 } else {
                     // columnsInfo could be different from what we responded earlier, so let's parse
                     // it again
@@ -360,15 +359,23 @@ public class DataSourceBridgeVerticle extends AbstractVerticle {
             final String generatedQuery = parser.getRawQuery();
 
             String normalizedQuery = parser.getNormalizedQuery();
+            log.debug("Generated query:\n{}\nNormalized query:\n{}", generatedQuery, normalizedQuery);
 
             // try if it's a named query first
             ClickHouseNamedQuery namedQuery = queries.get(normalizedQuery);
             // in case the "query" is a local file...
             normalizedQuery = ds.loadSavedQueryAsNeeded(normalizedQuery);
 
-            log.debug("Generated query:\n{}\nNormalized query:\n{}", generatedQuery, normalizedQuery);
+            String table = parser.getRawQuery();
+            if (namedQuery != null) {
+                table = parser.extractTable(ds.loadSavedQueryAsNeeded(namedQuery.getQuery()));
+            } else {
+                table = parser.extractTable(ds.loadSavedQueryAsNeeded(normalizedQuery));
+            }
 
-            // req.pipeTo(null);
+            ds.executeUpdate(parser.getSchema(), table, parser.getColumnList(), params,
+                    ClickHouseBuffer.wrap(ctx.getBody()));
+
             resp.write(ClickHouseBuffer.asBuffer(WRITE_RESPONSE));
 
             promise.complete();

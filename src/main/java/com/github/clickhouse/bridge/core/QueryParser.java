@@ -43,10 +43,18 @@ public class QueryParser {
     private static final String PARAM_TABLE_NAME = "table_name";
     private static final String PARAM_FORMAT_NAME = "format_name";
 
+    private static final String KEYWORD_FROM = "FROM";
+
     private static final String EXPR_QUERY = PARAM_QUERY + "=";
-    private static final String EXPR_FROM = " FROM ";
+    private static final String EXPR_FROM = " " + KEYWORD_FROM + " ";
 
     private static final String FORMAT_ROW_BINARY = "RowBinary";
+
+    private static final String SINGLE_LINE_COMMENT = "--";
+    private static final String MULTILINE_COMMENT_BEGIN = "/*";
+    private static final String MULTILINE_COMMENT_END = "*/";
+    private static final String DOUBLE_QUOTES_STRING = "''";
+    private static final String ESCAPED_QUOTE_STRING = "\\'";
 
     private final String uri;
     private final String schema;
@@ -84,6 +92,15 @@ public class QueryParser {
         return this.schema;
     }
 
+    public String extractTable(String normalizedQuery) {
+        String tableName = extractTableName(normalizedQuery);
+
+        if (tableName == null) {
+            tableName = extractTableName(this.table);
+        }
+        return tableName == null ? this.table : tableName;
+    }
+
     public boolean usingRowBinaryInput() {
         return FORMAT_ROW_BINARY.equals(this.inputFormat);
     }
@@ -114,6 +131,73 @@ public class QueryParser {
         }
 
         return this.normalizedQuery;
+    }
+
+    static String extractTableName(String query) {
+        if (query == null || query.length() == 0) {
+            return query;
+        }
+
+        String table = query;
+        int len = query.length();
+        int index = -1;
+
+        boolean quoteStarted = false;
+        for (int i = 0; i < len; i++) {
+            String nextTwo = query.substring(i, Math.min(i + 2, len));
+            if (SINGLE_LINE_COMMENT.equals(nextTwo)) {
+                int newIdx = query.indexOf("\n", i);
+                i = newIdx != -1 ? Math.max(i, newIdx) : len;
+            } else if (MULTILINE_COMMENT_BEGIN.equals(nextTwo)) {
+                int newIdx = query.indexOf(MULTILINE_COMMENT_END, i);
+                i = newIdx != -1 ? newIdx + 1 : len;
+            } else if (DOUBLE_QUOTES_STRING.equals(nextTwo) || ESCAPED_QUOTE_STRING.equals(nextTwo)) {
+                // ignore escaped single quote
+                i += nextTwo.length() - 1;
+            } else if (nextTwo.charAt(0) == '\'') {
+                if (quoteStarted = !quoteStarted) {
+                    i += nextTwo.length() - 1;
+                }
+            } else if (!quoteStarted) {
+                char ch = nextTwo.charAt(0);
+
+                if (index > 0 && ch == '(') {
+                    index = 0;
+                } else if (Character.isWhitespace(ch)) {
+                    if (index > 0) {
+                        if (index + 1 == i) {
+                            index = i;
+                        } else {
+                            table = query.substring(index + 1, i);
+                            index = -1;
+                            break;
+                        }
+                    } else {
+                        index = i + KEYWORD_FROM.length() + 1;
+                        if (index < len) {
+                            String str = query.substring(i + 1, index);
+                            if (KEYWORD_FROM.equalsIgnoreCase(str) && Character.isWhitespace(query.charAt(index))) {
+                                i = index;
+                            } else {
+                                index = 0;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                } else {
+                    continue;
+                }
+            }
+        }
+
+        if (index > 0) {
+            table = query.substring(index + 1);
+        } else if (index != -1) {
+            table = null;
+        }
+
+        return table;
     }
 
     public static String extractConnectionString(RoutingContext ctx, IDataSourceResolver resolver) {
@@ -195,13 +279,14 @@ public class QueryParser {
             for (int i = dotIndex; i < len; i++) {
                 String nextTwo = query.substring(i, Math.min(i + 2, len));
 
-                if ("--".equals(nextTwo)) {
+                if (SINGLE_LINE_COMMENT.equals(nextTwo)) {
                     int newIdx = query.indexOf("\n", i);
                     i = newIdx != -1 ? Math.max(i, newIdx) : len;
-                } else if ("/*".equals(nextTwo)) {
-                    int newIdx = query.indexOf("*/", i);
+                } else if (MULTILINE_COMMENT_BEGIN.equals(nextTwo)) {
+                    int newIdx = query.indexOf(MULTILINE_COMMENT_END, i);
                     i = newIdx != -1 ? newIdx + 1 : len;
-                } else if ("''".equals(nextTwo) || "\\'".equals(nextTwo)) { // ignore escaped single quote
+                } else if (DOUBLE_QUOTES_STRING.equals(nextTwo) || ESCAPED_QUOTE_STRING.equals(nextTwo)) {
+                    // ignore escaped single quote
                     i += nextTwo.length() - 1;
                 } else if (nextTwo.charAt(0) == '\'') {
                     if (quoteStarted = !quoteStarted) {

@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.JDBCType;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -100,30 +101,32 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
                 for (Entry<String, Object> field : config) {
                     String key = field.getKey();
 
-                    if (!PRIVATE_PROPS.contains(key)) {
-                        Object value = field.getValue();
+                    if (PRIVATE_PROPS.contains(key)) {
+                        continue;
+                    }
 
-                        if (value instanceof JsonObject) {
-                            if (CONF_DATASOURCE.equals(key)) {
-                                for (Entry<String, Object> entry : (JsonObject) value) {
-                                    String propName = entry.getKey();
-                                    String propValue = String.valueOf(entry.getValue());
-                                    if (!PROP_PASSWORD.equals(propName)) {
-                                        propValue = resolver.resolve(propValue);
-                                    }
+                    Object value = field.getValue();
 
-                                    props.setProperty(
-                                            new StringBuilder().append(key).append('.').append(propName).toString(),
-                                            propValue);
+                    if (value instanceof JsonObject) {
+                        if (CONF_DATASOURCE.equals(key)) {
+                            for (Entry<String, Object> entry : (JsonObject) value) {
+                                String propName = entry.getKey();
+                                String propValue = String.valueOf(entry.getValue());
+                                if (!PROP_PASSWORD.equals(propName)) {
+                                    propValue = resolver.resolve(propValue);
                                 }
+
+                                props.setProperty(
+                                        new StringBuilder().append(key).append('.').append(propName).toString(),
+                                        propValue);
                             }
-                        } else if (value != null && !(value instanceof JsonArray)) {
-                            String propValue = String.valueOf(value);
-                            if (!PROP_PASSWORD.equals(key)) {
-                                propValue = resolver.resolve(propValue);
-                            }
-                            props.setProperty(key, propValue);
                         }
+                    } else if (value != null && !(value instanceof JsonArray)) {
+                        String propValue = String.valueOf(value);
+                        if (!PROP_PASSWORD.equals(key)) {
+                            propValue = resolver.resolve(propValue);
+                        }
+                        props.setProperty(key, propValue);
                     }
                 }
             }
@@ -173,6 +176,13 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
         }
 
         return stmt;
+    }
+
+    protected final PreparedStatement createPreparedStatement(Connection conn, String sql, QueryParameters parameters)
+            throws SQLException {
+        log.info("Mutation: {}", sql);
+
+        return conn.prepareStatement(sql);
     }
 
     protected final void skipRows(ResultSet rs, QueryParameters parameters) throws SQLException {
@@ -456,6 +466,91 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
         }
     }
 
+    protected final void write(PreparedStatement stmt, ClickHouseColumnInfo[] cols, QueryParameters params,
+            ClickHouseBuffer buffer) throws SQLException {
+        for (int i = 1; i <= cols.length; i++) {
+            ClickHouseColumnInfo info = cols[i - 1];
+            if (info.isNullable() && buffer.readNull()) {
+                // stmt.setNull(i, info.getT);
+                stmt.setString(i, null);
+                continue;
+            }
+
+            switch (info.getType()) {
+                case Int8:
+                    stmt.setByte(i, buffer.readInt8());
+                    break;
+                case Int16:
+                    stmt.setShort(i, buffer.readInt16());
+                    break;
+                case Int32:
+                    stmt.setInt(i, buffer.readInt32());
+                    break;
+                case Int64:
+                    stmt.setLong(i, buffer.readInt64());
+                    break;
+                case UInt8:
+                    stmt.setInt(i, buffer.readUInt8());
+                    break;
+                case UInt16:
+                    stmt.setInt(i, buffer.readUInt8());
+                    break;
+                case UInt32:
+                    stmt.setLong(i, buffer.readUInt32());
+                    break;
+                case UInt64:
+                    stmt.setString(i, buffer.readUInt64().toString(10));
+                    break;
+                case Float32:
+                    stmt.setFloat(i, buffer.readFloat32());
+                    break;
+                case Float64:
+                    stmt.setDouble(i, buffer.readFloat64());
+                    break;
+                case Date:
+                    stmt.setDate(i, buffer.readDate());
+                    break;
+                case DateTime:
+                    stmt.setTimestamp(i, buffer.readDateTime(info.getTimeZone()));
+                    break;
+                case DateTime64:
+                    stmt.setTimestamp(i, buffer.readDateTime64(info.getTimeZone()));
+                    break;
+                case Decimal:
+                    stmt.setBigDecimal(i, buffer.readDecimal(info.getPrecision(), info.getScale()));
+                    break;
+                case Decimal32:
+                    stmt.setBigDecimal(i, buffer.readDecimal32(info.getScale()));
+                    break;
+                case Decimal64:
+                    stmt.setBigDecimal(i, buffer.readDecimal64(info.getScale()));
+                    break;
+                case Decimal128:
+                    stmt.setBigDecimal(i, buffer.readDecimal128(info.getScale()));
+                    break;
+
+                case String:
+                    stmt.setString(i, buffer.readString());
+                    break;
+                default:
+                    break;
+            }
+
+        }
+    }
+
+    private int executeBatch(PreparedStatement stmt) throws SQLException {
+        int mutationCount = 0;
+
+        int[] results = stmt.executeBatch();
+        for (int i = 0; i < results.length; i++) {
+            mutationCount += i;
+        }
+        stmt.clearBatch();
+
+        return mutationCount;
+    }
+
     @Override
     public final String getType() {
         return DATASOURCE_TYPE;
@@ -500,6 +595,59 @@ public class ClickHouseJdbcDataSource extends ClickHouseDataSource {
              * )); } else { throw new IllegalStateException(
              * "Not able to handle query result due to incompatible columns: " + columns); }
              */
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to execute SQL", e);
+        }
+    }
+
+    @Override
+    public void executeUpdate(String schema, String table, ClickHouseColumnList columns, QueryParameters params,
+            ClickHouseBuffer buffer) {
+        log.info("Executing mutation: schema=[{}], table=[{}]", schema, table);
+
+        StringBuilder sql = new StringBuilder();
+        sql.append("INSERT INTO ");
+        if (schema != null && schema.length() > 0 && table.indexOf('.') == -1) {
+            sql.append(schema).append('.');
+        }
+        sql.append(table).append(" VALUES(?");
+
+        final ClickHouseColumnInfo[] cols = columns.getColumns();
+        for (int i = 1; i < cols.length; i++) {
+            sql.append(',').append('?');
+        }
+        sql.append(')');
+
+        int batchSize = params.getBatchSize();
+        int rowCount = 0;
+
+        int mutationCount = 0;
+
+        try (Connection conn = getConnection();
+                PreparedStatement stmt = createPreparedStatement(conn, sql.toString(), params)) {
+            int counter = 0;
+            while (!buffer.isExausted()) {
+                write(stmt, cols, params, buffer);
+                rowCount++;
+
+                if (batchSize <= 0) {
+                    mutationCount += stmt.executeUpdate();
+                } else {
+                    stmt.addBatch();
+
+                    if (++counter >= batchSize) {
+                        mutationCount += this.executeBatch(stmt);
+                        counter = 0;
+                    }
+                }
+            }
+
+            if (batchSize > 0 && counter > 0) {
+                mutationCount += this.executeBatch(stmt);
+            }
+
+            log.info("Mutation status(batchSize={}): inputRows={}, effectedRows={}", batchSize, rowCount,
+                    mutationCount);
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to execute SQL", e);
         }

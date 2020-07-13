@@ -26,6 +26,7 @@ import java.util.TreeMap;
 import io.vertx.core.json.JsonObject;
 
 public class QueryParameters {
+    public static final String PARAM_BATCH_SIZE = "batch_size";
     public static final String PARAM_FETCH_SIZE = "fetch_size";
     public static final String PARAM_MAX_ROWS = "max_rows";
     public static final String PARAM_NULL_AS_DEFAULT = "null_as_default";
@@ -35,11 +36,13 @@ public class QueryParameters {
     public static final String PARAM_CUSTOM_COLUMNS = "custom_columns";
     public static final String PARAM_DEBUG = "debug";
 
+    public static final int DEFAULT_BATCH_SIZE = 100;
     public static final int DEFAULT_FETCH_SIZE = 1000;
     public static final int DEFAULT_MAX_ROWS = 0;
     public static final int DEFAULT_OFFSET = 0;
     public static final int DEFAULT_POSITION = 0;
 
+    private final TypedParameter<Integer> batchSize;
     private final TypedParameter<Integer> fetchSize;
     private final TypedParameter<Integer> maxRows;
     private final TypedParameter<Boolean> nullAsDefault;
@@ -52,6 +55,8 @@ public class QueryParameters {
     private final Map<String, TypedParameter<?>> params = new TreeMap<>();
 
     public QueryParameters() {
+        ClickHouseUtils.addTypedParameter(params,
+                this.batchSize = new TypedParameter<>(Integer.class, PARAM_BATCH_SIZE, DEFAULT_BATCH_SIZE));
         ClickHouseUtils.addTypedParameter(params,
                 this.fetchSize = new TypedParameter<>(Integer.class, PARAM_FETCH_SIZE, DEFAULT_FETCH_SIZE));
         ClickHouseUtils.addTypedParameter(params,
@@ -123,11 +128,20 @@ public class QueryParameters {
                     if (p != null) {
                         p.merge(value);
                     }
+                } else {
+                    TypedParameter<?> p = this.params.get(param);
+                    if (p != null && p.getDefaultValue() instanceof Boolean) {
+                        p.merge(Boolean.TRUE.toString());
+                    }
                 }
             }
         }
 
         return this;
+    }
+
+    public int getBatchSize() {
+        return this.batchSize.getValue();
     }
 
     public int getFetchSize() {

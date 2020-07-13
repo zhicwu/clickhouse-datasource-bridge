@@ -80,6 +80,20 @@ public final class ClickHouseUtils {
         }
     }
 
+    public static void checkArgument(BigInteger value, BigInteger minValue) {
+        if (value.compareTo(minValue) < 0) {
+            throw new IllegalArgumentException(new StringBuilder().append("Given value(").append(value)
+                    .append(") should greater than ").append(minValue).toString());
+        }
+    }
+
+    public static void checkArgument(BigInteger value, BigInteger minValue, BigInteger maxValue) {
+        if (value.compareTo(minValue) < 0 || value.compareTo(maxValue) > 0) {
+            throw new IllegalArgumentException(new StringBuilder().append("Given value(").append(value)
+                    .append(") should between ").append(minValue).append(" and ").append(maxValue).toString());
+        }
+    }
+
     public static List<String> splitByChar(String str, char delimiter) {
         return splitByChar(str, delimiter, true);
     }
